@@ -66,14 +66,14 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq expect
           cat > drive.exp <<'EXP'
           set timeout 300
-          spawn sudo -u tester /installer-x86_64 --non-interactive --yes --no-systemd --skip-doctor
+          spawn su -s /bin/bash tester -c "/installer-x86_64 --non-interactive --yes --no-systemd --skip-doctor"
           expect {
             -re {(?i)密码|password} { send "Root@1234\r"; exp_continue }
             timeout { exit 2 }
             eof
           }
           EXP
-          sudo expect drive.exp
+          expect drive.exp
       - name: 验证
         run: |
           docker version --format 'Docker {{.Server.Version}}'
