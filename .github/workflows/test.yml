@@ -13,10 +13,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: 编译并安装（root 直装路径）
+      - name: pack 出正式安装器并安装（root 直装路径）
         run: |
-          go build -o installer ./cmd/installer
-          sudo ./installer --non-interactive --yes
+          go run ./cmd/pack --archs x86_64
+          sudo ./dist/installer-x86_64 --non-interactive --yes
       - name: 验证
         run: |
           docker version
@@ -30,15 +30,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: 编译
-        run: go build -o installer ./cmd/installer
+      - name: pack 出正式安装器
+        run: go run ./cmd/pack --archs x86_64
       - name: 造带密码的 sudo 用户并安装
         run: |
-          sudo useradd -m -s /bin/bash tester
+          sudo useradd -m -s /bin/bash -u 1500 tester
           echo "tester:Test@1234" | sudo chpasswd
           echo "tester ALL=(ALL) ALL" | sudo tee /etc/sudoers.d/tester
+          sudo chmod 755 /home/tester
           sudo -u tester bash -c "echo Test@1234 | sudo -S true" # 预热校验
-          sudo -u tester /installer --non-interactive --yes --sudo-pass Test@1234
+          sudo -u tester /home/runner/work/docker-offline-kit/docker-offline-kit/dist/installer-x86_64 --non-interactive --yes --sudo-pass Test@1234
       - name: 验证
         run: |
           docker version
@@ -51,17 +52,21 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: 编译 + 移除 sudo
+      - name: pack 出正式安装器 + 移除 sudo
         run: |
-          go build -o installer ./cmd/installer
+          go run ./cmd/pack --archs x86_64
           sudo mv /usr/bin/sudo /usr/bin/sudo.bak
           echo "root:Root@1234" | sudo chpasswd
+          sudo useradd -m -s /bin/bash -u 1501 tester
+          sudo chmod 755 /home/tester
+          sudo cp dist/installer-x86_64 /installer-x86_64
+          sudo chmod 755 /installer-x86_64
       - name: expect 驱动 su 路径（需 pty 输 root 密码）
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq expect
           cat > drive.exp <<'EXP'
           set timeout 300
-          spawn sudo -u nobody /installer --non-interactive --yes --no-systemd --skip-doctor
+          spawn sudo -u tester /installer-x86_64 --non-interactive --yes --no-systemd --skip-doctor
           expect {
             -re {(?i)密码|password} { send "Root@1234\r"; exp_continue }
             timeout { exit 2 }
@@ -88,12 +93,12 @@ jobs:
           - openeuler/openeuler:24.03-lts
     steps:
       - uses: actions/checkout@v4
-      - name: 编译
-        run: go build -o installer ./cmd/installer
+      - name: pack 出正式安装器
+        run: go run ./cmd/pack --archs x86_64
       - name: 容器内安装（nohup 路径）
         run: |
           docker run --rm --privileged \
-            -v "$PWD/installer:/installer:ro" ${{ matrix.image }} bash -ec '
+            -v "$PWD/dist/installer-x86_64:/installer:ro" ${{ matrix.image }} bash -ec '
             (apt-get update -qq && apt-get install -y -qq iptables xz-utils) || \
             (yum install -y -q iptables xz) || \
             (dnf install -y -q iptables xz) || true
@@ -107,11 +112,11 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
-      - name: 编译并安装
+      - name: pack 出 aarch64 安装器并安装
         run: |
-          go build -o installer ./cmd/installer
+          go run ./cmd/pack --archs aarch64
           uname -m
-          sudo ./installer --non-interactive --yes
+          sudo ./dist/installer-aarch64 --non-interactive --yes
       - name: 验证
         run: |
           docker version --format 'Docker {{.Server.Version}} on {{.Os}}/{{.Arch}}'
