@@ -19,6 +19,18 @@
 | R9 | 可选参数 | DOCKER_VERSION / COMPOSE_VERSION / REGISTRY_MIRROR（默认最新版） |
 | R10 | 实测 | 容器档（多发行版含 openEuler，privileged+systemd）+ QEMU VM 档（发版前）+ 真机：内部 x86_64 Ubuntu 20.04 服务器、内部 aarch64 Debian 11 测试机（覆盖安装幂等测试） |
 | R11 | 本期不做 | Windows/macOS；rootless（二期第一顺位）；deploy SSH 直推子命令（接口预留） |
+| R12 | 交互设计（UX） | 交互式但克制：彩色分阶段进度（✓/⚠/●/○ + 步骤进度条）+ 三类决策点交互（覆盖升级确认 / sudo 密码 / 失败恢复三选一）+ 默认值回车到底；`--yes`/`--non-interactive`/`--sudo-pass` 保留全自动通道。逻辑与显示分离，非交互模式输出纯文本日志 |
+
+## 依赖选型（全部 vendor 入库，纯 Go 零 cgo）
+
+| 依赖 | 用途 |
+|---|---|
+| spf13/cobra | CLI 子命令/flag/帮助 |
+| fatih/color | ANSI 颜色，TTY 自动降级 |
+| golang.org/x/term | 密码输入关回显（替代 huh/bubbletea 重型 TUI——线性安装流不需要全屏 TUI，最小依赖原则） |
+| schollz/progressbar/v3 | 步骤/字节进度条 |
+
+构建细节：`GOPROXY=https://goproxy.cn,direct`（国内网络）；`go mod vendor` 构建离线可复现。
 
 ## 已知 tradeoff（用户知情确认）
 
