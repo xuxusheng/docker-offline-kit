@@ -72,6 +72,17 @@ scripts/test/           容器档 + QEMU 档测试流水线
 - Go 交叉编译零配置：GOARCH=arm GOARM=7；唯一常见坑：必须 CGO_ENABLED=0
 - QEMU：armv7 用 qemu-system-arm + Debian armhf 云镜像（全系统模拟）；发行版矩阵用容器档（privileged+systemd 镜像）+ KVM 云镜像档
 
+## CI 测试矩阵（GitHub Actions，2026-09-01 全绿 9/9）
+
+| 任务 | 覆盖 | 结果 |
+|---|---|---|
+| root 直装 | runner 真机 + 真 systemd 路径 | ✅ |
+| sudo 带密码 | --sudo-pass 自动供给 | ✅ |
+| su 兜底 | 移除 sudo 后 expect 驱动 | ✅ |
+| 容器档 debian:12 / ubuntu:20.04 / almalinux:8 / openeuler:24.03 | nohup 路径 + 多发行版（含国产） | ✅×4 |
+| aarch64 原生 runner | 真硬件全流程 | ✅ |
+| armv7 qemu-user 档 | 业界标准档冒烟 | ✅ |
+
 ## 版本基线（2026-09-01）
 
 - Docker Engine 29.7.2（download.docker.com 最新稳定）
