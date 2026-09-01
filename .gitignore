@@ -6,7 +6,7 @@ dist/
 
 # 下载缓存（官方二进制不入库，pack 时下载）
 .cache/
-payload/
+/payload/
 
 # Go
 *.test
