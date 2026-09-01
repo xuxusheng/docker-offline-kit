@@ -38,8 +38,9 @@ jobs:
           echo "tester:Test@1234" | sudo chpasswd
           echo "tester ALL=(ALL) ALL" | sudo tee /etc/sudoers.d/tester
           sudo chmod 755 /home/tester
+          sudo install -m 755 dist/installer-x86_64 /tmp/installer
           sudo -u tester bash -c "echo Test@1234 | sudo -S true" # 预热校验
-          sudo -u tester /home/runner/work/docker-offline-kit/docker-offline-kit/dist/installer-x86_64 --non-interactive --yes --sudo-pass Test@1234
+          sudo -u tester /tmp/installer --non-interactive --yes --sudo-pass Test@1234
       - name: 验证
         run: |
           docker version
@@ -55,12 +56,11 @@ jobs:
       - name: pack 出正式安装器 + 移除 sudo
         run: |
           go run ./cmd/pack --archs x86_64
-          sudo mv /usr/bin/sudo /usr/bin/sudo.bak
-          echo "root:Root@1234" | sudo chpasswd
           sudo useradd -m -s /bin/bash -u 1501 tester
-          sudo chmod 755 /home/tester
-          sudo cp dist/installer-x86_64 /installer-x86_64
-          sudo chmod 755 /installer-x86_64
+          echo "root:Root@1234" | sudo chpasswd
+          sudo install -m 755 dist/installer-x86_64 /installer-x86_64
+          # 最后一步才移除 sudo（本步内不再用 sudo）
+          sudo mv /usr/bin/sudo /usr/bin/sudo.bak
       - name: expect 驱动 su 路径（需 pty 输 root 密码）
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq expect
@@ -89,7 +89,7 @@ jobs:
         image:
           - debian:12
           - ubuntu:20.04
-          - centos:7
+          - almalinux:8
           - openeuler/openeuler:24.03-lts
     steps:
       - uses: actions/checkout@v4
@@ -119,7 +119,7 @@ jobs:
           sudo ./dist/installer-aarch64 --non-interactive --yes
       - name: 验证
         run: |
-          docker version --format 'Docker {{.Server.Version}} on {{.Os}}/{{.Arch}}'
+          docker version --format 'Docker {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})'
           docker compose version
 
   # ---------- armv7 qemu 冒烟（业界标准档）----------
