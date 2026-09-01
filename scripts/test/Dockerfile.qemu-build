@@ -1,0 +1,5 @@
+FROM debian:12
+RUN apt-get update -qq && apt-get install -y -qq \
+    debootstrap qemu-user-static binfmt-support e2fsprogs parted rsync qemu-utils \
+    sshpass openssh-client curl xz-utils \
+    >/dev/null && rm -rf /var/lib/apt/lists/*

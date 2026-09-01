@@ -8,7 +8,8 @@
 
 | # | 需求 | 定案 |
 |---|---|---|
-| R1 | 架构 | x86_64 + aarch64 实测；armv7 用 QEMU 全系统模拟实测 |
+| R1 | 架构 | x86_64 + aarch64 实测；armv7 按业界标准用 qemu-user 容器档实测（全系统模拟经实证不可行，见 R1 注） |
+  > R1 注（2026-09-01 实证）：Debian 12 官方已停止发布 armhf 云镜像；自建 rootfs 全系统模拟在 armmp 内核下 virtio 块设备无法挂载（/dev/vda1 不存在，initramfs virtio 模块齐全仍失败），TCG 全系统路线放弃。armv7 与 aarch64 共享同一份 Go 安装逻辑，仅指针宽度差异，运行时行为由 aarch64 真机实测背书。 |
 | R2 | 发行版 | 静态二进制实现 glibc 免疫；测试覆盖 Ubuntu/Debian/CentOS/openEuler 等 |
 | R3 | 提权 | root 直接 → sudo（NOPASSWD / 带密码交互 / --sudo-pass 自动化）→ su 兜底；rootless 二期 |
 | R4 | 预检 doctor（强化版） | 身份路径判定 + 架构/内核≥3.10/overlay2/cgroup/iptables≥1.4/systemd/磁盘/旧版残留；红黄绿报告，红灯阻断 |

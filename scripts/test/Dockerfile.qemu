@@ -1,0 +1,4 @@
+FROM debian:12
+RUN apt-get update -qq && apt-get install -y -qq \
+    qemu-system-arm qemu-utils cloud-image-utils sshpass openssh-client u-boot-qemu curl xz-utils \
+    >/dev/null && rm -rf /var/lib/apt/lists/*
