@@ -53,7 +53,7 @@ func run(cmd *cobra.Command, args []string) error {
 	// 1) 下载各架构 payload
 	var payloads []string // dist 内各架构安装器路径
 	for _, a := range archs {
-		if _, err := arch.DockerArch(map[string]string{"x86_64": "x86_64", "aarch64": "aarch64", "arm": "armv7l"}[a]); err != nil {
+		if _, err := arch.DockerArch(map[string]string{"x86_64": "x86_64", "aarch64": "aarch64", "armhf": "armv7l"}[a]); err != nil {
 			return fmt.Errorf("未知架构 %s（可选: %v）", a, arch.AllArchs)
 		}
 		fmt.Printf("==> [%s] 下载 Docker %s\n", a, dockerVersion)
@@ -66,7 +66,7 @@ func run(cmd *cobra.Command, args []string) error {
 		fmt.Printf("==> [%s] 下载 Compose %s\n", a, composeVersion)
 		composePath := filepath.Join(workDir, "compose-"+a)
 		if err := download(
-			fmt.Sprintf("https://github.com/docker/compose/releases/download/%s/docker-compose-linux-%s", composeVersion, a),
+			fmt.Sprintf("https://github.com/docker/compose/releases/download/%s/docker-compose-linux-%s", composeVersion, arch.ComposeAssetSuffix(a)),
 			composePath); err != nil {
 			return fmt.Errorf("[%s] 下载 compose 失败: %w", a, err)
 		}

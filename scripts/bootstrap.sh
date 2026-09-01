@@ -24,7 +24,7 @@ tail -c +"$OFFSET" "$0" | tar -xzf - -C "$WORK" || {
 case "$(uname -m)" in
   x86_64|amd64)   ARCH="x86_64" ;;
   aarch64|arm64)  ARCH="aarch64" ;;
-  armv7l|armv6l)  ARCH="arm" ;;
+  armv7l|armv6l)  ARCH="armhf" ;;
   *) echo "不支持的架构: $(uname -m)（支持 x86_64/aarch64/armv7）"; exit 1 ;;
 esac
 
