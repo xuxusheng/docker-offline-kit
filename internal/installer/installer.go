@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"docker-offline-kit/internal/privilege"
 )
@@ -36,7 +37,7 @@ type UI struct {
 	AskYesNo func(prompt string) bool // 返回 true=默认 Y
 }
 
-// HasPayloadPayload 报告 payload 是否已注入（开发构建可能为空）。
+// HasPayload 报告 payload 是否已注入（开发构建可能为空）。
 func HasPayload() bool {
 	entries, err := payloadFS.ReadDir("payload")
 	if err != nil || len(entries) == 0 {
@@ -51,6 +52,7 @@ func HasPayload() bool {
 }
 
 // Run 执行完整安装。ui 不能为 nil。
+// 覆盖升级失败时自动回滚：恢复备份的旧版二进制并尽力重启旧服务。
 func Run(root *privilege.Runner, opt Options, ui UI) error {
 	// 前置：payload 存在
 	if !HasPayload() {
@@ -92,89 +94,182 @@ func Run(root *privilege.Runner, opt Options, ui UI) error {
 	}
 	done()
 
-	// 3) docker 用户组（非 root 使用的前提；-f 组已存在不报错）
+	// 3) 备份旧版二进制 + compose（回滚用）
+	binList := []string{"dockerd", "docker", "containerd", "containerd-shim-runc-v2", "runc", "ctr", "docker-init", "docker-proxy"}
+	backupDir, hadOld := backupOld(root, binList)
+	rollback := func(installErr error) error {
+		if !hadOld {
+			ui.Warn("本次为全新安装，无旧版可回滚；机器上尚无可用的 Docker，请根据上方错误排查后重试")
+			return installErr
+		}
+		ui.Warn("安装失败，正在自动回滚到旧版 Docker ...")
+		if rerr := restoreBackup(root, backupDir, binList); rerr != nil {
+			ui.Warn("回滚失败：%v（备份保留在 %s，可手动恢复）", rerr, backupDir)
+			return installErr
+		}
+		restartDockerd(root, opt.NoSystemd)
+		if werr := waitDaemon(root, 60); werr != nil {
+			ui.Warn("旧版已恢复但 daemon 未就绪：%v", werr)
+		} else {
+			ui.Warn("已回滚到旧版 Docker，服务已恢复 ✓")
+		}
+		return fmt.Errorf("%w（已回滚；备份保留在 %s）", installErr, backupDir)
+	}
+
+	// 3.5) docker 用户组（非 root 使用的前提；-f 组已存在不报错）
 	root.QuietRun("groupadd", "-f", "docker")
 
 	// 4) 安装二进制
 	root.QuietRun("mkdir", "-p", "/usr/local/bin")
-	for _, b := range []string{"dockerd", "docker", "containerd", "containerd-shim-runc-v2", "runc", "ctr", "docker-init", "docker-proxy"} {
+	for _, b := range binList {
 		src := filepath.Join(tmp, "bin", b)
 		if fileExists(src) {
 			if err := root.Run("install", "-m", "0755", src, "/usr/local/bin/"+b); err != nil {
-				return fail(fmt.Errorf("安装 %s: %w", b, err))
+				return fail(rollback(fmt.Errorf("安装 %s: %w", b, err)))
 			}
 		}
 	}
 	done()
 
-	// 4) compose 插件（多路径覆盖新旧 CLI 查找）
+	// 5) compose 插件（多路径覆盖新旧 CLI 查找）
 	if err := root.Run("mkdir", "-p", "/usr/local/lib/docker/cli-plugins", "/usr/libexec/docker/cli-plugins", "/usr/lib/docker/cli-plugins"); err != nil {
-		return fail(err)
+		return fail(rollback(err))
 	}
 	if err := root.Run("install", "-m", "0755", filepath.Join(tmp, "compose", "docker-compose"), "/usr/local/lib/docker/cli-plugins/docker-compose"); err != nil {
-		return fail(err)
+		return fail(rollback(err))
 	}
 	for _, d := range []string{"/usr/libexec/docker/cli-plugins", "/usr/lib/docker/cli-plugins"} {
 		root.QuietRun("ln", "-sf", "/usr/local/lib/docker/cli-plugins/docker-compose", d+"/docker-compose")
 	}
 	done()
 
-	// 5) systemd 或 nohup
-	if opt.NoSystemd {
-		if err := root.Run("mkdir", "-p", "/etc/docker", "/var/log"); err != nil {
-			return fail(err)
+	// 6) systemd 或 nohup
+	startErr := func() error {
+		if opt.NoSystemd {
+			if err := root.Run("mkdir", "-p", "/etc/docker", "/var/log"); err != nil {
+				return err
+			}
+			if err := startNohup(root); err != nil {
+				return err
+			}
+			ui.Warn("nohup 方式无开机自启；请将下行加入 /etc/rc.local:")
+			ui.Warn("  nohup /usr/local/bin/dockerd >> /var/log/dockerd.log 2>&1 &")
+			return nil
 		}
-		if err := root.Run("bash", "-c", "nohup /usr/local/bin/dockerd >> /var/log/dockerd.log 2>&1 & disown"); err != nil {
-			return fail(err)
-		}
-		ui.Warn("nohup 方式无开机自启；请将下行加入 /etc/rc.local:")
-		ui.Warn("  nohup /usr/local/bin/dockerd >> /var/log/dockerd.log 2>&1 &")
-		done()
-	} else {
 		if err := writeSystemdUnits(root); err != nil {
-			return fail(err)
+			return err
 		}
-		done()
 		if err := root.Run("systemctl", "daemon-reload"); err != nil {
-			return fail(fmt.Errorf("systemd daemon-reload 失败（无 systemd？可改用 --no-systemd）: %w", err))
+			return fmt.Errorf("systemd daemon-reload 失败（无 systemd？可改用 --no-systemd）: %w", err)
 		}
 		root.QuietRun("systemctl", "enable", "--now", "containerd")
 		if err := root.Run("systemctl", "enable", "--now", "docker"); err != nil {
-			return fail(fmt.Errorf("启动 docker.service 失败: %w（可用 journalctl -u docker 查看）", err))
+			return fmt.Errorf("启动 docker.service 失败: %w（可用 journalctl -u docker 查看）", err)
 		}
-		done()
+		return nil
+	}()
+	if startErr != nil {
+		return fail(rollback(startErr))
 	}
+	done()
 
-	// 6) 镜像加速（可选）
+	// 7) 镜像加速（可选）：写配置后按启动方式正确重启
 	if opt.Mirror != "" {
-		if err := writeDaemonJSON(root, opt.Mirror); err != nil {
-			return fail(err)
+		if err := writeDaemonJSON(root, opt.Mirror, ui); err != nil {
+			return fail(rollback(err))
 		}
-		root.QuietRun("systemctl", "restart", "docker")
+		if err := restartDockerd(root, opt.NoSystemd); err != nil {
+			return fail(rollback(err))
+		}
 		done()
 	}
 
-	// 7) 等待 dockerd 就绪（nohup/systemd 启动都是异步的）
+	// 8) 等待 dockerd 就绪（nohup/systemd 启动都是异步的）
 	ui.Info("等待 dockerd 就绪 ...")
 	if err := waitDaemon(root, 60); err != nil {
-		return fail(err)
+		return fail(rollback(err))
 	}
 
-	// 8) 自验
+	// 9) 自验
 	out, err := root.CombinedOutput("/usr/local/bin/docker", "version", "--format", "Docker {{.Server.Version}}")
 	if err != nil {
-		return fail(fmt.Errorf("自验失败，dockerd 未就绪: %w\n%s", err, out))
+		return fail(rollback(fmt.Errorf("自验失败，dockerd 未就绪: %w\n%s", err, out)))
 	}
 	ui.Info("Docker %s ✓", strings.TrimSpace(out))
 	out, err = root.CombinedOutput("/usr/local/bin/docker", "compose", "version")
 	if err != nil {
-		return fail(fmt.Errorf("compose 插件验证失败: %w", err))
+		return fail(rollback(fmt.Errorf("compose 插件验证失败: %w", err)))
 	}
 	ui.Info("%s ✓", strings.TrimSpace(out))
 	done()
 
+	// 成功：清理备份
+	if hadOld {
+		root.QuietRun("rm", "-rf", backupDir)
+	}
 	return nil
 }
+
+// backupOld 把旧版二进制与 compose 插件复制到备份目录；返回备份目录与是否存在旧版。
+func backupOld(root *privilege.Runner, bins []string) (string, bool) {
+	ts := timeNowStamp()
+	dir := "/usr/local/bin/.dok-backup-" + ts
+	found := false
+	for _, b := range bins {
+		if root.QuietRun("test", "-f", "/usr/local/bin/"+b) == nil {
+			found = true
+			root.QuietRun("mkdir", "-p", dir)
+			root.QuietRun("cp", "-a", "/usr/local/bin/"+b, dir+"/")
+		}
+	}
+	if root.QuietRun("test", "-f", "/usr/local/lib/docker/cli-plugins/docker-compose") == nil {
+		found = true
+		root.QuietRun("mkdir", "-p", dir+"/compose")
+		root.QuietRun("cp", "-a", "/usr/local/lib/docker/cli-plugins/docker-compose", dir+"/compose/")
+	}
+	if found {
+		root.QuietRun("mkdir", "-p", dir) // 仅有 compose 时兜底建目录
+	}
+	return dir, found
+}
+
+// restoreBackup 从备份目录恢复旧版。
+func restoreBackup(root *privilege.Runner, backupDir string, bins []string) error {
+	for _, b := range bins {
+		if root.QuietRun("test", "-f", backupDir+"/"+b) == nil {
+			if err := root.Run("install", "-m", "0755", backupDir+"/"+b, "/usr/local/bin/"+b); err != nil {
+				return err
+			}
+		}
+	}
+	if root.QuietRun("test", "-f", backupDir+"/compose/docker-compose") == nil {
+		if err := root.Run("install", "-m", "0755", backupDir+"/compose/docker-compose", "/usr/local/lib/docker/cli-plugins/docker-compose"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// startNohup 拉起 dockerd（nohup 方式）。
+func startNohup(root *privilege.Runner) error {
+	if err := root.Run("mkdir", "-p", "/etc/docker", "/var/log"); err != nil {
+		return err
+	}
+	return root.Run("bash", "-c", "nohup /usr/local/bin/dockerd >> /var/log/dockerd.log 2>&1 & disown")
+}
+
+// restartDockerd 按启动方式正确重启（修复 nohup+mirror 组合下配置不生效的问题）。
+func restartDockerd(root *privilege.Runner, noSystemd bool) error {
+	if noSystemd {
+		root.QuietRun("pkill", "-x", "dockerd")
+		sleep(root, 2)
+		return startNohup(root)
+	}
+	return root.Run("systemctl", "restart", "docker")
+}
+
+// timeNowStamp 当前时间的文件名安全戳。
+func timeNowStamp() string { return time.Now().Format("20060102-150405") }
 
 func stopOld(root *privilege.Runner, ui UI) error {
 	haveSystemd := dirExists("/run/systemd/system")
@@ -242,7 +337,14 @@ WantedBy=multi-user.target
 	return writeRemote(root, "/etc/systemd/system/docker.service", dockerUnit)
 }
 
-func writeDaemonJSON(root *privilege.Runner, mirror string) error {
+func writeDaemonJSON(root *privilege.Runner, mirror string, ui UI) error {
+	// 已有配置先备份（防覆盖用户自定义项）
+	if root.QuietRun("test", "-f", "/etc/docker/daemon.json") == nil {
+		bak := "/etc/docker/daemon.json.bak-" + timeNowStamp()
+		if err := root.Run("cp", "-a", "/etc/docker/daemon.json", bak); err == nil {
+			ui.Warn("检测到已有 /etc/docker/daemon.json，原配置已备份为 %s（registry-mirrors 之外的字段会被本次配置覆盖，如有自定义请自行合并）", bak)
+		}
+	}
 	mirrors := []string{}
 	for _, m := range strings.Split(mirror, ",") {
 		if m = strings.TrimSpace(m); m != "" {

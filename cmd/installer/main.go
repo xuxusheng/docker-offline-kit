@@ -28,6 +28,15 @@ var (
 
 var version = "dev"
 
+// 包级颜色函数（run 与 doctor 子命令共用）
+var (
+	colGreen  = color.New(color.FgGreen, color.Bold).SprintFunc()
+	colYellow = color.New(color.FgYellow).SprintFunc()
+	colRed    = color.New(color.FgRed, color.Bold).SprintFunc()
+	colCyan   = color.New(color.FgCyan, color.Bold).SprintFunc()
+	colGray   = color.New(color.Faint).SprintFunc()
+)
+
 func main() {
 	root := &cobra.Command{
 		Use:   "docker-offline-installer",
@@ -45,41 +54,31 @@ func main() {
 		Use: "debug-extract <dst>", Args: cobra.ExactArgs(1), Hidden: true,
 		RunE: func(c *cobra.Command, a []string) error { return installer.DebugExtract(a[0]) },
 	})
+	root.AddCommand(&cobra.Command{
+		Use:   "doctor",
+		Short: "仅做环境预检，不安装",
+		RunE: func(c *cobra.Command, a []string) error {
+			fmt.Println(colCyan("docker-offline-kit")+" 环境预检", colGray("v"+version))
+			report := doctor.Run()
+			printReport(report, colGreen, colYellow, colRed, colGray)
+			if report.Fails > 0 { os.Exit(2) }
+			return nil
+		},
+	})
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	green := color.New(color.FgGreen, color.Bold).SprintFunc()
-	yellow := color.New(color.FgYellow).SprintFunc()
-	red := color.New(color.FgRed, color.Bold).SprintFunc()
-	cyan := color.New(color.FgCyan, color.Bold).SprintFunc()
-	gray := color.New(color.Faint).SprintFunc()
-
+	green, yellow, red, cyan, gray := colGreen, colYellow, colRed, colCyan, colGray
 	fmt.Println(cyan("docker-offline-kit")+" 安装器", gray("v"+version))
 
 	// ---------- 预检 ----------
 	if !skipDoctor {
 		fmt.Println(yellow("▸ 环境预检"))
 		report := doctor.Run()
-		for _, c := range report.Checks {
-			switch c.Status {
-			case doctor.OK:
-				fmt.Printf("  %s %-12s %s\n", green("✓"), c.Name, c.Detail)
-			case doctor.WARN:
-				fmt.Printf("  %s %-12s %s", yellow("⚠"), c.Name, c.Detail)
-				if c.Fix != "" {
-					fmt.Printf("  %s", gray("("+c.Fix+")"))
-				}
-				fmt.Println()
-			case doctor.FAIL:
-				fmt.Printf("  %s %-12s %s\n", red("✗"), c.Name, c.Detail)
-				if c.Fix != "" {
-					fmt.Printf("    %s %s\n", gray("→"), c.Fix)
-				}
-			}
-		}
+		printReport(report, green, yellow, red, gray)
 		fmt.Printf("  预检结论: %s\n", report.Verdict())
 		if report.Fails > 0 {
 			return fmt.Errorf("存在阻断项，中止安装")
@@ -130,21 +129,28 @@ func run(cmd *cobra.Command, args []string) error {
 		},
 	}
 
-	// 总进度条（步骤粒度）
-	pb := progressbar.NewOptions(100,
-		progressbar.OptionSetDescription("总进度"),
-		progressbar.OptionShowCount(),
-		progressbar.OptionSetPredictTime(false),
-		progressbar.OptionFullWidth(),
-		progressbar.OptionSetRenderBlankState(true),
-		progressbar.OptionOnCompletion(func() { fmt.Println() }),
-	)
+	// 总进度条（步骤粒度，total 由 installer.Run 的 Step 回调提供）
+	var pb *progressbar.ProgressBar
 	stepsDone := 0
+	baseStep := ui.Step
+	ui.Step = func(title string, total int) {
+		baseStep(title, total)
+		pb = progressbar.NewOptions(total,
+			progressbar.OptionSetDescription("总进度"),
+			progressbar.OptionShowCount(),
+			progressbar.OptionSetPredictTime(false),
+			progressbar.OptionFullWidth(),
+			progressbar.OptionSetRenderBlankState(true),
+			progressbar.OptionOnCompletion(func() { fmt.Println() }),
+		)
+	}
 	baseStepOK := ui.StepOK
 	ui.StepOK = func() {
 		baseStepOK()
 		stepsDone++
-		pb.Set(stepsDone * 100 / 8)
+		if pb != nil {
+			pb.Set(stepsDone)
+		}
 	}
 
 	fmt.Println(yellow("▸ 安装"))
@@ -156,7 +162,9 @@ func run(cmd *cobra.Command, args []string) error {
 	}, ui); err != nil {
 		return err
 	}
-	pb.Finish()
+	if pb != nil {
+		pb.Finish()
+	}
 
 	fmt.Println(green("\n✓ 安装完成"))
 	if os.Geteuid() != 0 {
@@ -185,4 +193,25 @@ func execLookPath(name string) (string, error) {
 
 func lookPath(name string) (string, error) {
 	return exec.LookPath(name)
+}
+
+
+func printReport(report *doctor.Report, green, yellow, red, gray func(...any) string) {
+	for _, c := range report.Checks {
+		switch c.Status {
+		case doctor.OK:
+			fmt.Printf("  %s %-12s %s\n", green("✓"), c.Name, c.Detail)
+		case doctor.WARN:
+			line := fmt.Sprintf("  %s %-12s %s", yellow("⚠"), c.Name, c.Detail)
+			if c.Fix != "" {
+				line += "  " + gray("("+c.Fix+")")
+			}
+			fmt.Println(line)
+		case doctor.FAIL:
+			fmt.Printf("  %s %-12s %s\n", red("✗"), c.Name, c.Detail)
+			if c.Fix != "" {
+				fmt.Printf("    %s %s\n", gray("→"), c.Fix)
+			}
+		}
+	}
 }
