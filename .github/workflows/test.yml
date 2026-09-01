@@ -56,14 +56,14 @@ jobs:
       - name: pack 出正式安装器 + 移除 sudo
         run: |
           go run ./cmd/pack --archs x86_64
+          sudo apt-get update -qq && sudo apt-get install -y -qq expect
           sudo useradd -m -s /bin/bash -u 1501 tester
           echo "root:Root@1234" | sudo chpasswd
           sudo install -m 755 dist/installer-x86_64 /installer-x86_64
-          # 最后一步才移除 sudo（本步内不再用 sudo）
+          # 最后一步才移除 sudo（本步之后不再用 sudo）
           sudo mv /usr/bin/sudo /usr/bin/sudo.bak
       - name: expect 驱动 su 路径（需 pty 输 root 密码）
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq expect
           cat > drive.exp <<'EXP'
           set timeout 300
           spawn su -s /bin/bash tester -c "/installer-x86_64 --non-interactive --yes --no-systemd --skip-doctor"
