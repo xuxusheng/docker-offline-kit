@@ -1,0 +1,137 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ---------- 真机 systemd 路径：runner 本体 ----------
+  install-root:
+    name: root 直装（真 systemd）
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 编译并安装（root 直装路径）
+        run: |
+          go build -o installer ./cmd/installer
+          sudo ./installer --non-interactive --yes
+      - name: 验证
+        run: |
+          docker version
+          docker compose version
+          systemctl is-active docker containerd
+          docker info --format 'Storage: {{.Driver}} | Cgroup: {{.CgroupVersion}}'
+
+  # ---------- sudo 带密码路径 ----------
+  install-sudo-pass:
+    name: sudo 带密码（--sudo-pass）
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 编译
+        run: go build -o installer ./cmd/installer
+      - name: 造带密码的 sudo 用户并安装
+        run: |
+          sudo useradd -m -s /bin/bash tester
+          echo "tester:Test@1234" | sudo chpasswd
+          echo "tester ALL=(ALL) ALL" | sudo tee /etc/sudoers.d/tester
+          sudo -u tester bash -c "echo Test@1234 | sudo -S true" # 预热校验
+          sudo -u tester /installer --non-interactive --yes --sudo-pass Test@1234
+      - name: 验证
+        run: |
+          docker version
+          docker compose version
+          systemctl is-active docker
+
+  # ---------- su 兜底路径 ----------
+  install-su:
+    name: su 兜底（无 sudo）
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 编译 + 移除 sudo
+        run: |
+          go build -o installer ./cmd/installer
+          sudo mv /usr/bin/sudo /usr/bin/sudo.bak
+          echo "root:Root@1234" | sudo chpasswd
+      - name: expect 驱动 su 路径（需 pty 输 root 密码）
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq expect
+          cat > drive.exp <<'EXP'
+          set timeout 300
+          spawn sudo -u nobody /installer --non-interactive --yes --no-systemd --skip-doctor
+          expect {
+            -re {(?i)密码|password} { send "Root@1234\r"; exp_continue }
+            timeout { exit 2 }
+            eof
+          }
+          EXP
+          sudo expect drive.exp
+      - name: 验证
+        run: |
+          docker version --format 'Docker {{.Server.Version}}'
+          docker compose version
+
+  # ---------- 多发行版容器矩阵（nohup 路径）----------
+  container-matrix:
+    name: 容器档 ${{ matrix.image }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:12
+          - ubuntu:20.04
+          - centos:7
+          - openeuler/openeuler:24.03-lts
+    steps:
+      - uses: actions/checkout@v4
+      - name: 编译
+        run: go build -o installer ./cmd/installer
+      - name: 容器内安装（nohup 路径）
+        run: |
+          docker run --rm --privileged \
+            -v "$PWD/installer:/installer:ro" ${{ matrix.image }} bash -ec '
+            (apt-get update -qq && apt-get install -y -qq iptables xz-utils) || \
+            (yum install -y -q iptables xz) || \
+            (dnf install -y -q iptables xz) || true
+            /installer --non-interactive --yes --no-systemd --skip-doctor 2>&1 | tail -8
+            docker version --format "Docker {{.Server.Version}} ✓"
+            docker compose version'
+
+  # ---------- aarch64 原生 runner ----------
+  arm64-native:
+    name: aarch64 原生（真硬件）
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: 编译并安装
+        run: |
+          go build -o installer ./cmd/installer
+          uname -m
+          sudo ./installer --non-interactive --yes
+      - name: 验证
+        run: |
+          docker version --format 'Docker {{.Server.Version}} on {{.Os}}/{{.Arch}}'
+          docker compose version
+
+  # ---------- armv7 qemu 冒烟（业界标准档）----------
+  armv7-qemu:
+    name: armv7 qemu-user 档
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm,v7
+      - name: armhf 容器内冒烟（版本+payload 解包）
+        run: |
+          go run ./cmd/pack --archs armhf
+          docker run --rm --platform linux/arm/v7 \
+            -v "$PWD/dist:/kit:ro" debian:12 bash -ec '
+            /kit/installer-armhf --version
+            /kit/installer-armhf debug-extract /tmp/x
+            ls /tmp/x/bin/dockerd /tmp/x/bin/docker /tmp/x/compose/docker-compose
+            echo "armv7 冒烟 ✓"'
