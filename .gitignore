@@ -1,0 +1,23 @@
+# 构建产物
+release/
+dist/
+*.run
+*.tar.gz
+
+# 下载缓存（官方二进制不入库，pack 时下载）
+.cache/
+payload/
+
+# Go
+*.test
+*.out
+bin/
+
+# 测试
+*.qcow2
+*.img
+vm-test/
+
+# 编辑器/系统
+.DS_Store
+*.swp
