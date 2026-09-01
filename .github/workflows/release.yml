@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: 打包三架构并发布 Release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pack 全部架构 + universal
+        run: go run ./cmd/pack --archs x86_64,aarch64,armhf
+
+      - name: 收集产物
+        run: |
+          mkdir -p release-out
+          cp dist/installer-x86_64 dist/installer-aarch64 dist/installer-armhf release-out/
+          cp release/*.run release/*.sha256 release-out/
+          ls -la release-out/
+
+      - name: 发布到 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-out/installer-x86_64
+            release-out/installer-aarch64
+            release-out/installer-armhf
+            release-out/*.run
+            release-out/*.sha256
+          body: |
+            ## Docker + Compose 离线安装器
+
+            | 文件 | 适用 |
+            |---|---|
+            | `docker-offline-installer-*-universal.run` | 通用（x86_64/aarch64/armhf 自动选择），推荐 |
+            | `installer-x86_64` | x86_64 瘦身版 |
+            | `installer-aarch64` | ARM64 瘦身版 |
+            | `installer-armhf` | 32 位 ARM 瘦身版 |
+
+            ## 用法
+
+            ```bash
+            # 下载（或离线拷贝）到目标机后：
+            sudo bash docker-offline-installer-*.run
+            # 自动：环境预检 → 提权（root/sudo/su）→ 安装 → 启动 → 自验
+            ```
+
+            验证完整性：核对同名 `.sha256` 文件。
