@@ -92,7 +92,10 @@ func Run(root *privilege.Runner, opt Options, ui UI) error {
 	}
 	done()
 
-	// 3) 安装二进制
+	// 3) docker 用户组（非 root 使用的前提；-f 组已存在不报错）
+	root.QuietRun("groupadd", "-f", "docker")
+
+	// 4) 安装二进制
 	root.QuietRun("mkdir", "-p", "/usr/local/bin")
 	for _, b := range []string{"dockerd", "docker", "containerd", "containerd-shim-runc-v2", "runc", "ctr", "docker-init", "docker-proxy"} {
 		src := filepath.Join(tmp, "bin", b)

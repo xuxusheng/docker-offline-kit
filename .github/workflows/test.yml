@@ -17,12 +17,16 @@ jobs:
         run: |
           go run ./cmd/pack --archs x86_64
           sudo ./dist/installer-x86_64 --non-interactive --yes
-      - name: 验证
+      - name: 验证（含非 root 用户组闭环）
         run: |
           docker version
           docker compose version
           systemctl is-active docker containerd
           docker info --format 'Storage: {{.Driver}} | Cgroup: {{.CgroupVersion}}'
+          getent group docker   # 安装器必须创建 docker 组
+          sudo useradd -m -s /bin/bash -u 1600 dockuser
+          sudo usermod -aG docker dockuser
+          sudo -u dockuser sh -c 'sg docker -c "docker ps"'   # 组内非 root 可连 docker.sock
 
   # ---------- sudo 带密码路径 ----------
   install-sudo-pass:

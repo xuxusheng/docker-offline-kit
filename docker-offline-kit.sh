@@ -144,6 +144,10 @@ for b in dockerd docker containerd containerd-shim-runc-v2 runc ctr docker-init 
   [ -f "$ARCH_DIR/bin/$b" ] && install -m 0755 "$ARCH_DIR/bin/$b" /usr/local/bin/
 done
 
+# 2.5) docker 用户组（非 root 使用的前提）
+log "确保 docker 用户组存在 ..."
+groupadd -f docker
+
 # 3) compose 插件（多路径软链，覆盖新旧 CLI 查找路径）
 log "安装 compose 插件 ..."
 mkdir -p /usr/local/lib/docker/cli-plugins /usr/libexec/docker/cli-plugins /usr/lib/docker/cli-plugins
