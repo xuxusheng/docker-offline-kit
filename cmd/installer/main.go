@@ -28,6 +28,15 @@ var (
 
 var version = "dev"
 
+// logFile 安装日志（/tmp/dok-install-*.log），失败排查用
+var logFile *os.File
+
+func writeLog(line string) {
+	if logFile != nil {
+		fmt.Fprintln(logFile, line)
+	}
+}
+
 // 包级颜色函数（run 与 doctor 子命令共用）
 var (
 	colGreen  = color.New(color.FgGreen, color.Bold).SprintFunc()
@@ -66,6 +75,9 @@ func main() {
 		},
 	})
 	if err := root.Execute(); err != nil {
+		if logFile != nil {
+			fmt.Fprintf(os.Stderr, "（完整日志: %s）\n", logFile.Name())
+		}
 		os.Exit(1)
 	}
 }
@@ -73,6 +85,12 @@ func main() {
 func run(cmd *cobra.Command, args []string) error {
 	green, yellow, red, cyan, gray := colGreen, colYellow, colRed, colCyan, colGray
 	fmt.Println(cyan("docker-offline-kit")+" 安装器", gray("v"+version))
+	logFile, _ = os.CreateTemp("", "dok-install-*.log")
+	if logFile != nil {
+		defer logFile.Close()
+		writeLog("version=" + version)
+		writeLog("args=" + strings.Join(os.Args[1:], " "))
+	}
 
 	// ---------- 预检 ----------
 	if !skipDoctor {
@@ -112,11 +130,23 @@ func run(cmd *cobra.Command, args []string) error {
 	ui := installer.UI{
 		Step: func(title string, total int) {
 			fmt.Printf("%s %s\n", yellow("▸"), cyan(title))
+			writeLog("STEP " + title)
 		},
-		StepOK:  func() { fmt.Printf("  %s\n", green("✓ 完成")) },
-		StepErr: func(err error) { fmt.Printf("  %s %v\n", red("✗ 失败"), err) },
-		Info:    func(f string, a ...any) { fmt.Printf("    %s\n", fmt.Sprintf(f, a...)) },
-		Warn:    func(f string, a ...any) { fmt.Printf("    %s\n", yellow(fmt.Sprintf(f, a...))) },
+		StepOK:  func() { fmt.Printf("  %s\n", green("✓ 完成")); writeLog("  OK") },
+		StepErr: func(err error) {
+			fmt.Printf("  %s %v\n", red("✗ 失败"), err)
+			writeLog("  FAIL: " + err.Error())
+		},
+		Info: func(f string, a ...any) {
+			msg := fmt.Sprintf(f, a...)
+			fmt.Printf("    %s\n", msg)
+			writeLog("  " + msg)
+		},
+		Warn: func(f string, a ...any) {
+			msg := fmt.Sprintf(f, a...)
+			fmt.Printf("    %s\n", yellow(msg))
+			writeLog("  WARN: " + msg)
+		},
 		AskYesNo: func(prompt string) bool {
 			if yes {
 				return true
@@ -197,6 +227,11 @@ func lookPath(name string) (string, error) {
 
 
 func printReport(report *doctor.Report, green, yellow, red, gray func(...any) string) {
+	defer func() {
+		if logFile != nil {
+			writeLog(fmt.Sprintf("doctor: fails=%d warns=%d", report.Fails, report.Warns))
+		}
+	}()
 	for _, c := range report.Checks {
 		switch c.Status {
 		case doctor.OK:

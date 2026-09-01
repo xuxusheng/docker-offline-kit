@@ -182,14 +182,22 @@ func buildUniversal(outPath string, installers []string, archs []string) error {
 	}
 	defer os.Remove(tarPath)
 
+	// 计算 payload sha256 并注入引导壳（目标机解包前自动校验）
+	tarData, _ := os.ReadFile(tarPath)
+	sum := sha256.Sum256(tarData)
+	payloadSum := hex.EncodeToString(sum[:])
+	bootStr := strings.Replace(string(bootstrap), "__DOK_SHA256__", payloadSum, 1)
+	if bootStr == string(bootstrap) {
+		return fmt.Errorf("引导壳模板缺少 __DOK_SHA256__ 占位符")
+	}
+
 	out, _ := os.Create(outPath)
 	defer out.Close()
-	out.Write(bootstrap)
-	if !strings.HasSuffix(string(bootstrap), "\n") {
+	out.Write([]byte(bootStr))
+	if !strings.HasSuffix(bootStr, "\n") {
 		out.Write([]byte("\n"))
 	}
 	fmt.Fprintln(out, "__DOK_PAYLOAD_BELOW__")
-	tarData, _ := os.ReadFile(tarPath)
 	out.Write(tarData)
 	os.Chmod(outPath, 0755)
 	return nil
