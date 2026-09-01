@@ -140,10 +140,16 @@ func Run() *Report {
 		r.add(Check{Name: "systemd", Status: WARN, Detail: "无 systemd，将走 nohup 兜底（无开机自启）"})
 	}
 
-	// 9) 旧版 docker
+	// 9) 旧版 docker（区分安装来源：包管理器安装的覆盖会造成双版本共存，需明确警告）
 	if p, err := exec.LookPath("docker"); err == nil {
 		ver := cmdOut(p, "--version")
-		r.add(Check{Name: "旧版 Docker", Status: WARN, Detail: ver + "，将覆盖升级（/var/lib/docker 数据保留）"})
+		if src := pkgSource(); src != "" {
+			r.add(Check{Name: "旧版 Docker", Status: WARN,
+				Detail: ver + "，来源: " + src + "（包管理器管理）",
+				Fix:    "建议继续用包管理器升级；用本工具覆盖会双版本共存（apt upgrade 时 /usr/bin/docker 被独立升级，与 /usr/local/bin 版本漂移）"})
+		} else {
+			r.add(Check{Name: "旧版 Docker", Status: WARN, Detail: ver + "（静态/手动安装），将覆盖升级（/var/lib/docker 数据保留）"})
+		}
 	} else {
 		r.add(Check{Name: "旧版 Docker", Status: OK, Detail: "无，全新安装"})
 	}
@@ -216,6 +222,23 @@ func kernelVersion() float64 {
 		return 0
 	}
 	return v
+}
+
+// pkgSource 检测 docker 是否由包管理器管理（dpkg/rpm），返回来源描述；无则空串。
+func pkgSource() string {
+	if _, err := exec.LookPath("dpkg"); err == nil {
+		script := `dpkg -l 2>/dev/null | awk '/^ii/ && $2 ~ /^(docker-ce|docker-ee|docker.io|containerd|nvidia-docker2)$/ {print $2, $3}'`
+		if out := cmdOut("sh", "-c", script); strings.TrimSpace(out) != "" {
+			return "dpkg: " + strings.ReplaceAll(out, "\n", "; ")
+		}
+	}
+	if _, err := exec.LookPath("rpm"); err == nil {
+		script := `rpm -q docker-ce docker-ee docker.io containerd 2>/dev/null | grep -v "not installed" | grep -v 未安装`
+		if out := cmdOut("sh", "-c", script); strings.TrimSpace(out) != "" {
+			return "rpm: " + strings.ReplaceAll(out, "\n", "; ")
+		}
+	}
+	return ""
 }
 
 func cmdOut(name string, args ...string) string {
