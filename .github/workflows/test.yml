@@ -21,8 +21,8 @@ jobs:
     name: root 直装（真 systemd）
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
       - name: pack 出正式安装器并安装（root 直装路径）
@@ -45,8 +45,8 @@ jobs:
     name: sudo 带密码（--sudo-pass）
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
       - name: pack 出正式安装器
@@ -71,8 +71,8 @@ jobs:
     name: su 兜底（无 sudo）
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
       - name: pack 出正式安装器 + 移除 sudo
@@ -114,8 +114,8 @@ jobs:
           - almalinux:8
           - openeuler/openeuler:24.03-lts
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
       - name: pack 出正式安装器
@@ -136,8 +136,8 @@ jobs:
     name: aarch64 原生（真硬件）
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
       - name: pack 出 aarch64 安装器并安装
@@ -155,11 +155,11 @@ jobs:
     name: armv7 qemu-user 档
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         with:
           platforms: arm,v7
       - name: armhf 容器内冒烟（版本+payload 解包）
@@ -179,23 +179,24 @@ jobs:
     needs: [install-root, install-sudo-pass, install-su, container-matrix, arm64-native, armv7-qemu]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
 
       - name: pack 全部架构 + universal
         run: go run ./cmd/pack --archs x86_64,aarch64,armhf
 
-      - name: 收集产物
+      - name: 收集产物（含 latest 别名）
         run: |
           mkdir -p release-out
           cp dist/installer-x86_64 dist/installer-aarch64 dist/installer-armhf release-out/
           cp release/*.run release/*.sha256 release-out/
+          cp release/dok-installer-*-universal.run release-out/dok-installer-latest-universal.run
           ls -la release-out/
 
       - name: 发布到 GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           generate_release_notes: true
           files: |

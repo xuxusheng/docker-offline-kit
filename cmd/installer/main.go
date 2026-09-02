@@ -23,6 +23,7 @@ var (
 	sudoPass       string
 	noSystemd      bool
 	mirror         string
+	liveRestore    bool
 	skipDoctor     bool
 )
 
@@ -58,6 +59,7 @@ func main() {
 	root.Flags().StringVar(&sudoPass, "sudo-pass", "", "sudo 密码（自动化用；注意可能留存 history/CI 日志）")
 	root.Flags().BoolVar(&noSystemd, "no-systemd", false, "无 systemd 环境：nohup 方式启动")
 	root.Flags().StringVar(&mirror, "mirror", "", "镜像加速地址，逗号分隔（写入 /etc/docker/daemon.json）")
+	root.Flags().BoolVar(&liveRestore, "live-restore", false, "启用 live-restore：daemon 升级/重启期间容器保持运行")
 	root.Flags().BoolVar(&skipDoctor, "skip-doctor", false, "跳过预检（不建议）")
 	root.AddCommand(&cobra.Command{
 		Use: "debug-extract <dst>", Args: cobra.ExactArgs(1), Hidden: true,
@@ -105,10 +107,15 @@ func run(cmd *cobra.Command, args []string) error {
 
 	// ---------- 覆盖确认 ----------
 	if p, err := execLookPath("docker"); err == nil && !yes {
+		running := runningContainers() // 尽力统计运行中容器数
+		prompt := "已存在 Docker，是否覆盖升级（镜像/容器数据保留）？"
+		if running >= 0 {
+			prompt = fmt.Sprintf("已存在 Docker，且有 %d 个容器正在运行（升级期间会短暂中断），是否覆盖升级（数据保留）？", running)
+		}
 		if nonInteractive {
 			return fmt.Errorf("检测到已安装 docker（%s），非交互模式需要 --yes 才允许覆盖升级", p)
 		}
-		fmt.Print(yellow("? ") + "已存在 Docker，是否覆盖升级（镜像/容器数据保留）？[Y/n] ")
+		fmt.Print(yellow("? ") + prompt + " [Y/n] ")
 		if !askYesDefaultYes() {
 			fmt.Println("已取消")
 			return nil
@@ -186,6 +193,7 @@ func run(cmd *cobra.Command, args []string) error {
 	fmt.Println(yellow("▸ 安装"))
 	if err := installer.Run(runner, installer.Options{
 		Mirror:         mirror,
+		LiveRestore:    liveRestore,
 		NoSystemd:      noSystemd,
 		NonInteractive: nonInteractive,
 		Yes:            yes,
@@ -223,6 +231,19 @@ func execLookPath(name string) (string, error) {
 
 func lookPath(name string) (string, error) {
 	return exec.LookPath(name)
+}
+
+// runningContainers 尽力统计运行中容器数（-1 表示无法统计，提示中省略）。
+func runningContainers() int {
+	out, err := exec.Command("sh", "-c", "docker ps -q 2>/dev/null | wc -l").Output()
+	if err != nil {
+		return -1
+	}
+	n := 0
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d", &n); err != nil {
+		return -1
+	}
+	return n
 }
 
 

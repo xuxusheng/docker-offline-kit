@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ var payloadFS embed.FS
 // Options 安装参数。
 type Options struct {
 	Mirror         string // registry-mirrors，逗号分隔；空则不写 daemon.json
+	LiveRestore    bool   // live-restore：daemon 重启/升级期间容器继续运行
 	NoSystemd      bool
 	NonInteractive bool
 	Yes            bool // 所有确认取默认
@@ -67,8 +69,8 @@ func Run(root *privilege.Runner, opt Options, ui UI) error {
 	} else {
 		steps = append(steps, "注册 systemd 服务", "启动服务")
 	}
-	if opt.Mirror != "" {
-		steps = append(steps, "配置镜像加速")
+	if opt.Mirror != "" || opt.LiveRestore {
+		steps = append(steps, "写入 daemon.json")
 	}
 	steps = append(steps, "自验")
 
@@ -118,10 +120,21 @@ func Run(root *privilege.Runner, opt Options, ui UI) error {
 
 	// 3.5) docker 用户组（非 root 使用的前提；-f 组已存在不报错）
 	root.QuietRun("groupadd", "-f", "docker")
-	// 通过 sudo 安装时，把发起安装的用户直接加进 docker 组（装完即用，免去 usermod+重新登录）
-	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" && sudoUser != "root" {
-		if err := root.QuietRun("usermod", "-aG", "docker", sudoUser); err == nil {
-			ui.Info("已将用户 %s 加入 docker 组", sudoUser)
+	// 把"实际使用 docker 的用户"加进 docker 组（装完即用，免 usermod+重新登录）
+	// - root 直接运行：无（root 本身可用）
+	// - sudo 运行（euid=0）：SUDO_USER 即发起人
+	// - 非 root 运行（sudo -u xxx / su 嵌套）：当前进程属主才是受益人
+	target := ""
+	if os.Geteuid() == 0 {
+		if u := os.Getenv("SUDO_USER"); u != "" && u != "root" {
+			target = u
+		}
+	} else if u, uerr := user.Current(); uerr == nil && u.Username != "root" {
+		target = u.Username
+	}
+	if target != "" {
+		if err := root.QuietRun("usermod", "-aG", "docker", target); err == nil {
+			ui.Info("已将用户 %s 加入 docker 组", target)
 		}
 	}
 
@@ -179,9 +192,9 @@ func Run(root *privilege.Runner, opt Options, ui UI) error {
 	}
 	done()
 
-	// 7) 镜像加速（可选）：写配置后按启动方式正确重启
-	if opt.Mirror != "" {
-		if err := writeDaemonJSON(root, opt.Mirror, ui); err != nil {
+	// 7) daemon.json（镜像加速/live-restore）：写配置后按启动方式正确重启
+	if opt.Mirror != "" || opt.LiveRestore {
+		if err := writeDaemonJSON(root, opt.Mirror, opt.LiveRestore, ui); err != nil {
 			return fail(rollback(err))
 		}
 		if err := restartDockerd(root, opt.NoSystemd); err != nil {
@@ -343,7 +356,7 @@ WantedBy=multi-user.target
 	return writeRemote(root, "/etc/systemd/system/docker.service", dockerUnit)
 }
 
-func writeDaemonJSON(root *privilege.Runner, mirror string, ui UI) error {
+func writeDaemonJSON(root *privilege.Runner, mirror string, liveRestore bool, ui UI) error {
 	// 已有配置先备份（防覆盖用户自定义项）
 	if root.QuietRun("test", "-f", "/etc/docker/daemon.json") == nil {
 		bak := "/etc/docker/daemon.json.bak-" + timeNowStamp()
@@ -357,11 +370,12 @@ func writeDaemonJSON(root *privilege.Runner, mirror string, ui UI) error {
 			mirrors = append(mirrors, m)
 		}
 	}
-	json := fmt.Sprintf(`{
-  "registry-mirrors": [%s],
-  "log-driver": "json-file",
-  "log-opts": {"max-size": "50m", "max-file": "3"}
-}`, joinQuoted(mirrors))
+	fields := []string{`"registry-mirrors": [` + joinQuoted(mirrors) + `]`}
+	if liveRestore {
+		fields = append(fields, `"live-restore": true`)
+	}
+	fields = append(fields, `"log-driver": "json-file"`, `"log-opts": {"max-size": "50m", "max-file": "3"}`)
+	json := "{\n  " + strings.Join(fields, ",\n  ") + "\n}"
 	return writeRemote(root, "/etc/docker/daemon.json", json)
 }
 
