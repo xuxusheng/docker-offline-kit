@@ -20,6 +20,13 @@ import (
 	"docker-offline-kit/internal/arch"
 )
 
+// DefaultDockerVersion / DefaultComposeVersion 是 pack 的默认版本基线。
+// version-check workflow 会 grep 这两个常量与官方最新版对比。
+var (
+	DefaultDockerVersion  = "29.7.2"
+	DefaultComposeVersion = "v5.5.0"
+)
+
 var (
 	dockerVersion  string
 	composeVersion string
@@ -33,8 +40,8 @@ func main() {
 		Short: "制作离线安装器（联网机运行）",
 		RunE:  run,
 	}
-	root.Flags().StringVar(&dockerVersion, "docker-version", "29.7.2", "Docker Engine 版本")
-	root.Flags().StringVar(&composeVersion, "compose-version", "v5.5.0", "Compose 版本")
+	root.Flags().StringVar(&dockerVersion, "docker-version", DefaultDockerVersion, "Docker Engine 版本")
+	root.Flags().StringVar(&composeVersion, "compose-version", DefaultComposeVersion, "Compose 版本")
 	root.Flags().StringSliceVar(&archs, "archs", []string{"x86_64", "aarch64"}, "架构列表（可含 arm）")
 	root.Flags().StringVar(&outDir, "out", "release", "输出目录")
 	if err := root.Execute(); err != nil {

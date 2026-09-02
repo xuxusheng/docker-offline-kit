@@ -1,0 +1,50 @@
+name: version-check
+
+# 每周一检查 Docker 官方最新版 vs 仓库默认打包版本；落后则自动开/更新 issue
+on:
+  schedule:
+    - cron: "0 3 * * 1" # 每周一 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: 查询官方最新稳定版与仓库当前默认版
+        id: ver
+        run: |
+          LATEST=$(curl -fsSL https://api.github.com/repos/moby/moby/releases/latest | grep -oP '"tag_name": "\Kdocker-v[^"]+' | sed 's/^docker-v//')
+          CURRENT=$(grep -oP 'DefaultDockerVersion\s*=\s*"\K[^"]+' cmd/pack/main.go | head -1)
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "官方最新: $LATEST / 仓库默认: $CURRENT"
+
+      - name: 版本落后则开/更新 issue
+        if: steps.ver.outputs.latest != steps.ver.outputs.current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LATEST: ${{ steps.ver.outputs.latest }}
+          CURRENT: ${{ steps.ver.outputs.current }}
+        run: |
+          TITLE="Docker 新版本可用：$LATEST（当前打包 $CURRENT）"
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number -q '.[0].number' || true)
+          BODY="官方 [moby/moby](https://github.com/moby/moby/releases) 最新稳定版为 **$LATEST**，本仓库 pack 默认打包 **$CURRENT**。
+
+          静态二进制无自动安全更新（见 SPEC 已知取舍），建议跟进：
+          \`\`\`
+          go run ./cmd/pack --docker-version=$LATEST --archs x86_64,aarch64,armhf
+          \`\`\`
+          更新 \`DefaultDockerVersion\` 与 \`DefaultComposeVersion\` 后提交并打 tag 发布。"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "$BODY"
+            echo "已更新既有 issue #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label "enhancement"
+            echo "已创建新 issue"
+          fi
