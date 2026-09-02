@@ -15,7 +15,9 @@ OFFSET=$(grep -abm1 "^${MARKER}$" "$0" | cut -d: -f1)
 OFFSET=$((OFFSET + ${#MARKER} + 2))
 [ "$OFFSET" -gt 10 ] || { echo "错误: payload 标记未找到（文件损坏？）"; exit 1; }
 
-WORK=$(mktemp -d /tmp/dok-installer.XXXXXX)
+# 用 /var/tmp（磁盘-backed）而非 /tmp：Ubuntu 24.04+ 的 /tmp 是 tmpfs，
+# 小内存机器（RAM/2）装不下 ~600MB 的 payload 峰值占用
+WORK=$(mktemp -d /var/tmp/dok-installer.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 
 # 2) 切出 payload 并校验完整性（防 U 盘/网络传输损坏）
