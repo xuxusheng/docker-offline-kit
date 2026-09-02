@@ -317,6 +317,14 @@ func runRootless(opt Options, ui UI) error {
 	done := func() { ui.StepOK() }
 	fail := func(err error) error { ui.StepErr(err); return err }
 
+	// 停旧（rootless）：配合下方 rename 安装，确保下次启动用新版
+	if os.Getenv("XDG_RUNTIME_DIR") == "" {
+		os.Setenv("XDG_RUNTIME_DIR", "/run/user/"+fmt.Sprint(os.Getuid()))
+	}
+	_ = exec.Command("systemctl", "--user", "stop", "docker", "docker.socket").Run()
+	_ = exec.Command("pkill", "-f", "rootlesskit").Run() // 兜底：手动模式残留
+	time.Sleep(1 * time.Second)
+
 	tmp, err := os.MkdirTemp("/var/tmp", "dok-payload-*")
 	if err != nil {
 		return fail(err)
@@ -338,8 +346,13 @@ func runRootless(opt Options, ui UI) error {
 			if rerr != nil {
 				return fail(rerr)
 			}
-			if werr := os.WriteFile(dst, data, 0755); werr != nil {
+			// rename 替换 inode：即使 daemon 运行中也不会 text file busy
+			newDst := dst + ".dok-new"
+			if werr := os.WriteFile(newDst, data, 0755); werr != nil {
 				return fail(werr)
+			}
+			if rerr := os.Rename(newDst, dst); rerr != nil {
+				return fail(rerr)
 			}
 		}
 	}
