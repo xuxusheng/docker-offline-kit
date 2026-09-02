@@ -170,7 +170,7 @@ jobs:
             /kit/installer-armhf --version
             /kit/installer-armhf debug-extract /tmp/x
             ls /tmp/x/bin/dockerd /tmp/x/bin/docker /tmp/x/compose/docker-compose
-            echo "armv7 冒烟 ✓"
+            echo "armv7 冒烟 ✓"'
 
   # ---------- 发布：全部测试通过后才执行（仅 tag 触发） ----------
   release:
@@ -220,4 +220,4 @@ jobs:
             # 自动：环境预检 → 提权（root/sudo/su）→ 安装 → 启动 → 自验
             ```
 
-            验证完整性：universal 包内嵌 sha256 自校验；亦可核对同名 `.sha256` 文件。'
+            验证完整性：universal 包内嵌 sha256 自校验；亦可核对同名 `.sha256` 文件。
