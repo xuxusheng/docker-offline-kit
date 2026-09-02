@@ -118,6 +118,12 @@ func Run(root *privilege.Runner, opt Options, ui UI) error {
 
 	// 3.5) docker 用户组（非 root 使用的前提；-f 组已存在不报错）
 	root.QuietRun("groupadd", "-f", "docker")
+	// 通过 sudo 安装时，把发起安装的用户直接加进 docker 组（装完即用，免去 usermod+重新登录）
+	if sudoUser := os.Getenv("SUDO_USER"); sudoUser != "" && sudoUser != "root" {
+		if err := root.QuietRun("usermod", "-aG", "docker", sudoUser); err == nil {
+			ui.Info("已将用户 %s 加入 docker 组", sudoUser)
+		}
+	}
 
 	// 4) 安装二进制
 	root.QuietRun("mkdir", "-p", "/usr/local/bin")
