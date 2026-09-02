@@ -12,6 +12,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   # ---------- 真机 systemd 路径：runner 本体 ----------
   install-root:
@@ -167,4 +170,54 @@ jobs:
             /kit/installer-armhf --version
             /kit/installer-armhf debug-extract /tmp/x
             ls /tmp/x/bin/dockerd /tmp/x/bin/docker /tmp/x/compose/docker-compose
-            echo "armv7 冒烟 ✓"'
+            echo "armv7 冒烟 ✓"
+
+  # ---------- 发布：全部测试通过后才执行（仅 tag 触发） ----------
+  release:
+    name: 发布 Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [install-root, install-sudo-pass, install-su, container-matrix, arm64-native, armv7-qemu]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: pack 全部架构 + universal
+        run: go run ./cmd/pack --archs x86_64,aarch64,armhf
+
+      - name: 收集产物
+        run: |
+          mkdir -p release-out
+          cp dist/installer-x86_64 dist/installer-aarch64 dist/installer-armhf release-out/
+          cp release/*.run release/*.sha256 release-out/
+          ls -la release-out/
+
+      - name: 发布到 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-out/installer-x86_64
+            release-out/installer-aarch64
+            release-out/installer-armhf
+            release-out/*.run
+            release-out/*.sha256
+          body: |
+            ## Docker + Compose 离线安装器
+
+            | 文件 | 适用 |
+            |---|---|
+            | `dok-installer-*-universal.run` | 通用（x86_64/aarch64/armhf 自动选择），推荐 |
+            | `installer-x86_64` / `installer-aarch64` / `installer-armhf` | 单架构瘦身版 |
+
+            ## 用法
+
+            ```bash
+            # 下载（或离线拷贝）到目标机后：
+            sudo bash dok-installer-*.run
+            # 自动：环境预检 → 提权（root/sudo/su）→ 安装 → 启动 → 自验
+            ```
+
+            验证完整性：universal 包内嵌 sha256 自校验；亦可核对同名 `.sha256` 文件。'
