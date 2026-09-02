@@ -47,4 +47,8 @@ INSTALLER="$WORK/$ARCH"
 [ -f "$INSTALLER" ] || { echo "错误: 包内无 $ARCH 架构安装器"; exit 1; }
 chmod +x "$INSTALLER"
 
-exec "$INSTALLER" "$@"
+# 不用 exec：exec 会替换进程导致 EXIT trap 失效，/var/tmp 残留 ~600MB/次
+"$INSTALLER" "$@"
+rc=$?
+rm -rf "$WORK"
+exit $rc
