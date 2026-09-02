@@ -3,8 +3,14 @@ name: test
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+# 同一分支/tag 的新推送自动取消未完成的旧 run
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   # ---------- 真机 systemd 路径：runner 本体 ----------
