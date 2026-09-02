@@ -63,17 +63,25 @@ type Runner struct {
 // NewRunner 根据 Mode 创建 Runner；SudoPass 为空且需要密码时交互读取。
 func NewRunner(mode Mode, sudoPass string, nonInteractive bool) (*Runner, error) {
 	r := &Runner{Mode: mode, SudoPass: sudoPass, NonInteractive: nonInteractive}
-	if mode == ModeSudoPass && sudoPass == "" {
-		if nonInteractive {
-			return nil, fmt.Errorf("非交互模式下 sudo 需要密码，请用 --sudo-pass 提供")
+	if mode == ModeSudoPass {
+		if sudoPass == "" {
+			if nonInteractive {
+				return nil, fmt.Errorf("非交互模式下 sudo 需要密码，请用 --sudo-pass 提供")
+			}
+			fmt.Print("请输入 sudo 密码: ")
+			b, err := term.ReadPassword(int(os.Stdin.Fd()))
+			fmt.Println()
+			if err != nil {
+				return nil, err
+			}
+			r.SudoPass = string(b)
 		}
-		fmt.Print("请输入 sudo 密码: ")
-		b, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
-		if err != nil {
-			return nil, err
+		// 预验证密码：错误立即明确报错，不做任何更改（防止升级中途静默失败）
+		vcmd := exec.Command("sudo", "-k", "-S", "-p", "", "true")
+		vcmd.Stdin = strings.NewReader(r.SudoPass + "\n")
+		if err := vcmd.Run(); err != nil {
+			return nil, fmt.Errorf("sudo 密码验证失败（密码错误或该用户无 sudo 权限），未做任何更改")
 		}
-		r.SudoPass = string(b)
 	}
 	return r, nil
 }
