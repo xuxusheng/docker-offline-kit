@@ -16,6 +16,7 @@ pack:
 build:
 	go build -o dist/installer ./cmd/installer
 	go build -o dist/pack ./cmd/pack
+	go build -o dist/dok-deploy ./cmd/dok-deploy
 
 test:
 	go test ./...
