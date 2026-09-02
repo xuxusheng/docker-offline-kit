@@ -48,7 +48,7 @@ var (
 
 func main() {
 	root := &cobra.Command{
-		Use:   "docker-offline-installer",
+		Use:   "dok-installer",
 		Short: "Docker + Compose 离线安装器（单文件，零依赖）",
 		Version: version,
 		RunE:  run,

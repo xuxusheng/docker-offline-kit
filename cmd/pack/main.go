@@ -88,8 +88,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// 4) universal .run
-	name := fmt.Sprintf("docker-offline-installer-%s+%s-universal.run",
-		dockerVersion, strings.TrimPrefix(composeVersion, "v"))
+	name := fmt.Sprintf("dok-installer-%s-universal.run", dockerVersion)
 	runPath := filepath.Join(outDir, name)
 	fmt.Printf("==> 拼接 universal 引导壳 -> %s\n", runPath)
 	if err := buildUniversal(runPath, payloads, archs); err != nil {

@@ -2,7 +2,7 @@
 # docker-offline-kit universal 引导壳
 # 单文件 = 本脚本 + 追加的多架构 Go 安装器 tar.gz（标记行之后）
 # 内嵌 payload 的 sha256（打包时写入 EXPECTED_SHA256），解包前自动校验传输完整性
-# 用法: sudo bash docker-offline-installer-*.run [安装器参数]
+# 用法: sudo bash dok-installer-*.run [安装器参数]
 #       参数原样透传，如 --yes --no-systemd --mirror=... --sudo-pass ...
 set -euo pipefail
 

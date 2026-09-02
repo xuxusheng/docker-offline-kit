@@ -41,7 +41,7 @@ jobs:
 
             | 文件 | 适用 |
             |---|---|
-            | `docker-offline-installer-*-universal.run` | 通用（x86_64/aarch64/armhf 自动选择），推荐 |
+            | `dok-installer-*-universal.run` | 通用（x86_64/aarch64/armhf 自动选择），推荐 |
             | `installer-x86_64` | x86_64 瘦身版 |
             | `installer-aarch64` | ARM64 瘦身版 |
             | `installer-armhf` | 32 位 ARM 瘦身版 |
@@ -50,7 +50,7 @@ jobs:
 
             ```bash
             # 下载（或离线拷贝）到目标机后：
-            sudo bash docker-offline-installer-*.run
+            sudo bash dok-installer-*.run
             # 自动：环境预检 → 提权（root/sudo/su）→ 安装 → 启动 → 自验
             ```
 

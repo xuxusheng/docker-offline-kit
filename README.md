@@ -8,11 +8,11 @@
 
 ```bash
 # 1. 下载（国内服务器用加速前缀，见下文「下载」）
-curl -fL -o docker-offline-installer.run \
-  "https://ghfast.top/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/docker-offline-installer-29.7.2%2B5.5.0-universal.run"
+curl -fL -o dok-installer.run \
+  "https://ghfast.top/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/dok-installer-29.7.2-universal.run"
 
 # 2. 安装（自动预检 → 提权 → 安装 → 启动 → 自验）
-sudo bash docker-offline-installer.run
+sudo bash dok-installer.run
 
 # 3. 部署你的项目
 docker compose up -d
@@ -26,7 +26,7 @@ docker compose up -d
 
 | 文件 | 适用 |
 |---|---|
-| `docker-offline-installer-*-universal.run` | **通用**（x86_64/aarch64/armhf 自动选择），推荐 |
+| `dok-installer-*-universal.run` | **通用**（x86_64/aarch64/armhf 自动选择），推荐 |
 | `installer-x86_64` / `installer-aarch64` / `installer-armhf` | 单架构瘦身版（约为通用包 1/3 体积） |
 
 按目标机网络环境选择下载方式：
@@ -34,19 +34,19 @@ docker compose up -d
 **① 能直连 GitHub**（境外服务器）：
 
 ```bash
-wget https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/docker-offline-installer-29.7.2%2B5.5.0-universal.run
+wget https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/dok-installer-29.7.2-universal.run
 ```
 
 **② 国内服务器**（直连实测仅 ~20KB/s）：在原始 URL 前加加速代理前缀，实测可提速到 1.8~2.4MB/s：
 
 ```bash
 # 首选
-curl -fL -o docker-offline-installer.run \
-  "https://ghfast.top/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/docker-offline-installer-29.7.2%2B5.5.0-universal.run"
+curl -fL -o dok-installer.run \
+  "https://ghfast.top/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/dok-installer-29.7.2-universal.run"
 
 # 备选
-curl -fL -o docker-offline-installer.run \
-  "https://gh-proxy.com/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/docker-offline-installer-29.7.2%2B5.5.0-universal.run"
+curl -fL -o dok-installer.run \
+  "https://gh-proxy.com/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/dok-installer-29.7.2-universal.run"
 ```
 
 **③ 完全离线的目标机**：在任何有网机器上按 ①② 下载，再 `scp` 或 U 盘拷贝过去。
@@ -56,17 +56,17 @@ curl -fL -o docker-offline-installer.run \
 ## 🛠 用法与常用参数
 
 ```bash
-sudo bash docker-offline-installer-*.run          # 标准安装
-sudo bash docker-offline-installer-*.run --yes    # 所有确认取默认（全自动）
-sudo bash docker-offline-installer-*.run --no-systemd   # 无 systemd 环境（nohup 兜底）
-sudo bash docker-offline-installer-*.run --mirror <加速地址>   # 写入 registry-mirrors
-docker-offline-installer --help                   # 全部参数
+sudo bash dok-installer-*.run          # 标准安装
+sudo bash dok-installer-*.run --yes    # 所有确认取默认（全自动）
+sudo bash dok-installer-*.run --no-systemd   # 无 systemd 环境（nohup 兜底）
+sudo bash dok-installer-*.run --mirror <加速地址>   # 写入 registry-mirrors
+dok-installer --help                   # 全部参数
 ```
 
 只想体检不安装？`doctor` 子命令单独跑预检（架构/内核/overlay2/cgroup/iptables/systemd/旧版来源/磁盘，共 11 项）：
 
 ```bash
-bash docker-offline-installer-*.run doctor
+bash dok-installer-*.run doctor
 ```
 
 安装流程自动完成：**环境预检 → 提权（root / sudo / su 自动降级）→ 安装引擎与 Compose → systemd 注册（或 nohup 兜底）→ 启动 → 自验**。
