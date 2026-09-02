@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -154,6 +155,17 @@ func Run() *Report {
 		r.add(Check{Name: "旧版 Docker", Status: OK, Detail: "无，全新安装"})
 	}
 
+	// 9.5) rootless 可行性（仅当无特权路径时评估）
+	if os.Geteuid() != 0 {
+		if _, err := exec.LookPath("sudo"); err != nil {
+			if _, serr := exec.LookPath("su"); serr != nil {
+				detail, st := RootlessPrereqs()
+				r.add(Check{Name: "rootless", Status: st, Detail: detail,
+					Fix: "管理员一次性: 安装 uidmap + usermod --add-subuids 100000-165535 --add-subgids 100000-165535 <用户> + sysctl kernel.apparmor_restrict_unprivileged_userns=0"})
+			}
+		}
+	}
+
 	// 10) 磁盘
 	if avail := diskAvailMB("/var/lib"); avail > 0 {
 		if avail >= 2048 {
@@ -241,12 +253,67 @@ func pkgSource() string {
 	return ""
 }
 
+// RootlessPrereqs 评估无特权机器走 rootless 的可行性。
+func RootlessPrereqs() (string, Status) {
+	issues := []string{}
+	if n := usernsMax(); n <= 0 {
+		issues = append(issues, "user namespaces 未启用")
+	}
+	for _, b := range []string{"newuidmap", "newgidmap"} {
+		if _, err := lookBin(b); err != nil {
+			issues = append(issues, "缺 uidmap 包")
+			break
+		}
+	}
+	// Ubuntu 23.10+ 的 AppArmor 非特权 userns 限制
+	if b, err := os.ReadFile("/proc/sys/kernel/apparmor_restrict_unprivileged_userns"); err == nil && strings.TrimSpace(string(b)) == "1" {
+		issues = append(issues, "AppArmor 限制了非特权 userns（Ubuntu 24.04+ 默认）")
+	}
+	u, uerr := user.Current()
+	hasSub := false
+	if uerr == nil {
+		for _, f := range []string{"/etc/subuid", "/etc/subgid"} {
+			b, ferr := os.ReadFile(f)
+			if ferr != nil || !strings.Contains(string(b), u.Username+":") {
+				break
+			}
+			hasSub = f == "/etc/subgid"
+		}
+	}
+	if !hasSub {
+		issues = append(issues, "缺 /etc/subuid、/etc/subgid 条目")
+	}
+	if len(issues) == 0 {
+		return "rootless 前提全部满足（无特权机器可装）", OK
+	}
+	needAdmin := false
+	for _, i := range issues {
+		if strings.Contains(i, "uidmap") || strings.Contains(i, "subuid") || strings.Contains(i, "AppArmor") {
+			needAdmin = true
+		}
+	}
+	detail := "rootless 前提缺失: " + strings.Join(issues, "；")
+	if needAdmin {
+		return detail, WARN // 管理员一次性配置后可行
+	}
+	return detail, FAIL
+}
+
 func cmdOut(name string, args ...string) string {
 	out, err := exec.Command(name, args...).CombinedOutput()
 	if err != nil {
 		return name
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func usernsMax() int {
+	b, err := os.ReadFile("/proc/sys/user/max_user_namespaces")
+	if err != nil {
+		return -1
+	}
+	n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return n
 }
 
 func diskAvailMB(path string) int64 {

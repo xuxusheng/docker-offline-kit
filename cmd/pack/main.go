@@ -78,10 +78,27 @@ func run(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("[%s] 下载 compose 失败: %w", a, err)
 		}
 
+		// rootless 组件（extras + slirp4netns + fuse-overlayfs 静态二进制）
+		fmt.Printf("==> [%s] 下载 rootless-extras + slirp4netns + fuse-overlayfs\n", a)
+		rootlessDir := filepath.Join(workDir, "rootless-"+a)
+		if err := downloadExtractTgz(
+			fmt.Sprintf("https://download.docker.com/linux/static/stable/%s/docker-rootless-extras-%s.tgz", a, dockerVersion),
+			rootlessDir); err != nil {
+			return fmt.Errorf("[%s] 下载 rootless-extras 失败: %w", a, err)
+		}
+		for _, comp := range []struct{ urlSub, local string }{
+			{"https://github.com/rootless-containers/slirp4netns/releases/download/v1.3.5/slirp4netns-" + arch.RootlessAssetSuffix(a), "slirp4netns"},
+			{"https://github.com/containers/fuse-overlayfs/releases/download/v1.18/fuse-overlayfs-" + arch.RootlessAssetSuffix(a), "fuse-overlayfs"},
+		} {
+			if err := download(comp.urlSub, filepath.Join(rootlessDir, comp.local)); err != nil {
+				return fmt.Errorf("[%s] 下载 %s 失败: %w", a, comp.local, err)
+			}
+		}
+
 		// 2) 组 payload.bin（tar.gz: bin/* + compose/docker-compose）
 		fmt.Printf("==> [%s] 组装 payload\n", a)
 		payloadBin := filepath.Join(workDir, "payload-"+a+".bin")
-		if err := buildPayload(payloadBin, engineDir, composePath); err != nil {
+		if err := buildPayload(payloadBin, engineDir, composePath, rootlessDir); err != nil {
 			return err
 		}
 
@@ -140,8 +157,8 @@ func buildInstaller(dockerArch, payloadBin string) (string, error) {
 	return out, nil
 }
 
-// buildPayload 生成 payload.bin = tar.gz{ bin/<引擎>, compose/docker-compose }。
-func buildPayload(outPath, engineDir, composePath string) error {
+// buildPayload 生成 payload.bin = tar.gz{ bin/<引擎>, compose/docker-compose, rootless/* }。
+func buildPayload(outPath, engineDir, composePath, rootlessDir string) error {
 	f, _ := os.Create(outPath)
 	defer f.Close()
 	gz := gzip.NewWriter(f)
@@ -170,6 +187,25 @@ func buildPayload(outPath, engineDir, composePath string) error {
 	}
 	if err := add("compose/docker-compose", composePath, 0755); err != nil {
 		return err
+	}
+	// rootless 组件：extras 里的可执行文件 + slirp4netns + fuse-overlayfs
+	rootlessSub := filepath.Join(rootlessDir, "docker-rootless-extras")
+	if st, err := os.Stat(rootlessSub); err != nil || !st.IsDir() {
+		rootlessSub = rootlessDir
+	}
+	entries, _ := os.ReadDir(rootlessSub)
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if err := add("rootless/"+e.Name(), filepath.Join(rootlessSub, e.Name()), 0755); err != nil {
+			return err
+		}
+	}
+	for _, comp := range []string{"slirp4netns", "fuse-overlayfs"} {
+		if err := add("rootless/"+comp, filepath.Join(rootlessDir, comp), 0755); err != nil {
+			return err
+		}
 	}
 	tw.Close()
 	gz.Close()

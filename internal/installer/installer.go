@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -24,6 +25,7 @@ var payloadFS embed.FS
 type Options struct {
 	Mirror         string // registry-mirrors，逗号分隔；空则不写 daemon.json
 	LiveRestore    bool   // live-restore：daemon 重启/升级期间容器继续运行
+	Rootless       bool   // rootless 模式：装到 ~/.local，用户态 daemon
 	NoSystemd      bool
 	NonInteractive bool
 	Yes            bool // 所有确认取默认
@@ -59,6 +61,13 @@ func Run(root *privilege.Runner, opt Options, ui UI) error {
 	// 前置：payload 存在
 	if !HasPayload() {
 		return fmt.Errorf("安装器内未发现内置 payload（开发构建？请用 make build 出正式包）")
+	}
+
+	if opt.Rootless {
+		return runRootless(opt, ui)
+	}
+	if root == nil {
+		return fmt.Errorf("内部错误：非 rootless 模式需要提权 Runner")
 	}
 
 	steps := []string{
@@ -289,6 +298,138 @@ func restartDockerd(root *privilege.Runner, noSystemd bool) error {
 
 // timeNowStamp 当前时间的文件名安全戳。
 func timeNowStamp() string { return time.Now().Format("20060102-150405") }
+
+// RunRootless 是 rootless 安装入口（main 包调用）。
+func RunRootless(opt Options, ui UI) error { return runRootless(opt, ui) }
+
+// runRootless 无特权安装：~/.local/bin + rootlesskit 用户态 daemon + systemd --user。
+func runRootless(opt Options, ui UI) error {
+	if os.Geteuid() == 0 {
+		return fmt.Errorf("rootless 模式应以普通用户身份运行（当前为 root）——root 运行请去掉 --rootless")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	binDir := filepath.Join(home, ".local", "bin")
+	steps := []string{"解包引擎", "安装二进制到 ~/.local/bin", "rootless 前置检查", "配置 systemd --user 服务", "启动并验证"}
+	ui.Step("rootless 安装", len(steps))
+	done := func() { ui.StepOK() }
+	fail := func(err error) error { ui.StepErr(err); return err }
+
+	tmp, err := os.MkdirTemp("/var/tmp", "dok-payload-*")
+	if err != nil {
+		return fail(err)
+	}
+	defer os.RemoveAll(tmp)
+	if err := extractPayload(tmp); err != nil {
+		return fail(err)
+	}
+	done()
+
+	// 安装引擎 + rootless 组件到 ~/.local/bin
+	os.MkdirAll(binDir, 0755)
+	for _, sub := range []string{"bin", "rootless"} {
+		entries, _ := os.ReadDir(filepath.Join(tmp, sub))
+		for _, e := range entries {
+			src := filepath.Join(tmp, sub, e.Name())
+			dst := filepath.Join(binDir, e.Name())
+			data, rerr := os.ReadFile(src)
+			if rerr != nil {
+				return fail(rerr)
+			}
+			if werr := os.WriteFile(dst, data, 0755); werr != nil {
+				return fail(werr)
+			}
+		}
+	}
+	ui.Info("已安装到 %s（请确认其在 PATH 中）", binDir)
+	done()
+
+	// 前置检查：uidmap、subuid、userns
+	ui.Info("rootless 前置检查 ...")
+	for _, b := range []string{"newuidmap", "newgidmap"} {
+		if _, lerr := exec.LookPath(b); lerr != nil {
+			return fail(fmt.Errorf("缺 %s（请管理员安装 uidmap 包）", b))
+		}
+	}
+	if n := usernsMax(); n <= 0 {
+		return fail(fmt.Errorf("user namespaces 未启用（max_user_namespaces=%d）", n))
+	}
+	if !subuidHasUser() {
+		ui.Warn("/etc/subuid 中没有当前用户条目——需管理员一次性执行:")
+		ui.Warn("  sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 %s", os.Getenv("USER"))
+		return fail(fmt.Errorf("缺 subuid/subgid 映射（管理员一次性配置后重试）"))
+	}
+	done()
+
+	// 配置环境 + setup tool
+	setup := filepath.Join(binDir, "dockerd-rootless-setuptool.sh")
+	if _, serr := os.Stat(setup); serr != nil {
+		return fail(fmt.Errorf("包内缺 dockerd-rootless-setuptool.sh"))
+	}
+	uid := fmt.Sprint(os.Getuid())
+	os.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+	xdg := os.Getenv("XDG_RUNTIME_DIR")
+	if xdg == "" {
+		xdg = "/run/user/" + uid
+	}
+	if st, serr := os.Stat(xdg); serr != nil || !st.IsDir() {
+		return fail(fmt.Errorf(
+			"未检测到用户运行时目录 %s——rootless 的 systemd --user 依赖 logind 用户会话；请通过 SSH 直接登录该用户后再试（sudo/su 切换不会创建会话）", xdg))
+	}
+	os.Setenv("XDG_RUNTIME_DIR", xdg)
+	if _, berr := os.Stat(filepath.Join(xdg, "bus")); berr != nil {
+		return fail(fmt.Errorf(
+			"未检测到 systemd 用户总线 %s/bus——rootless 需要该用户的 systemd user session；请通过 SSH 直接登录该用户（或由管理员执行 systemctl start user@<uid>）后再试", xdg))
+	}
+	// 禁用 host 网络（rootlesskit 需 slirp4netns），setup tool 自检
+	ui.Info("执行 dockerd-rootless-setuptool.sh install ...")
+	cmd := exec.Command(setup, "install")
+	cmd.Env = append(os.Environ(), "PATH="+binDir+":"+os.Getenv("PATH"))
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fail(fmt.Errorf("rootless setup 失败: %w（常见原因见上方输出）", err))
+	}
+	done()
+
+	// 验证（rootless context）
+	verify := exec.Command(binDir+"/docker", "--context", "rootless", "version", "--format", "Docker {{.Server.Version}} (rootless)")
+	out, verr := verify.CombinedOutput()
+	if verr != nil {
+		return fail(fmt.Errorf("rootless 引擎验证失败: %w\n%s", verr, out))
+	}
+	ui.Info("%s ✓", strings.TrimSpace(string(out)))
+	done()
+
+	ui.Warn("rootless 限制: 端口 <1024 需 setcap、cgroup 限额不生效、网络走 slirp4netns")
+	ui.Warn("开机自启: 管理员执行一次 sudo loginctl enable-linger $USER 后 systemctl --user enable docker")
+	return nil
+}
+
+func usernsMax() int {
+	b, err := os.ReadFile("/proc/sys/user/max_user_namespaces")
+	if err != nil {
+		return -1
+	}
+	n := 0
+	fmt.Sscanf(strings.TrimSpace(string(b)), "%d", &n)
+	return n
+}
+
+func subuidHasUser() bool {
+	u, err := user.Current()
+	if err != nil {
+		return false
+	}
+	for _, f := range []string{"/etc/subuid", "/etc/subgid"} {
+		b, rerr := os.ReadFile(f)
+		if rerr != nil || !strings.Contains(string(b), u.Username+":") {
+			return false
+		}
+	}
+	return true
+}
 
 func stopOld(root *privilege.Runner, ui UI) error {
 	haveSystemd := dirExists("/run/systemd/system")

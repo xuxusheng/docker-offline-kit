@@ -42,6 +42,19 @@ func GoArch(dockerArch string) (goarch, goarm string) {
 // AllArchs 是 pack 支持的全部架构。
 var AllArchs = []string{"x86_64", "aarch64", "armhf"}
 
+// RootlessAssetSuffix 返回 slirp4netns/fuse-overlayfs release 资产名中的架构后缀。
+func RootlessAssetSuffix(dockerArch string) string {
+	switch dockerArch {
+	case "x86_64":
+		return "x86_64"
+	case "aarch64":
+		return "aarch64"
+	case "armhf":
+		return "armv7l"
+	}
+	return dockerArch
+}
+
 // ComposeAssetSuffix 返回 compose release 资产名中的架构后缀。
 func ComposeAssetSuffix(dockerArch string) string {
 	switch dockerArch {

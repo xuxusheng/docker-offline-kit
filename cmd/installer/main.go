@@ -24,6 +24,7 @@ var (
 	noSystemd      bool
 	mirror         string
 	liveRestore    bool
+	rootless       bool
 	skipDoctor     bool
 )
 
@@ -60,6 +61,7 @@ func main() {
 	root.Flags().BoolVar(&noSystemd, "no-systemd", false, "无 systemd 环境：nohup 方式启动")
 	root.Flags().StringVar(&mirror, "mirror", "", "镜像加速地址，逗号分隔（写入 /etc/docker/daemon.json）")
 	root.Flags().BoolVar(&liveRestore, "live-restore", false, "启用 live-restore：daemon 升级/重启期间容器保持运行")
+	root.Flags().BoolVar(&rootless, "rootless", false, "rootless 模式：装到 ~/.local，用户态 daemon（无特权机器用）")
 	root.Flags().BoolVar(&skipDoctor, "skip-doctor", false, "跳过预检（不建议）")
 	root.AddCommand(&cobra.Command{
 		Use: "debug-extract <dst>", Args: cobra.ExactArgs(1), Hidden: true,
@@ -125,12 +127,24 @@ func run(cmd *cobra.Command, args []string) error {
 	// ---------- 提权 ----------
 	mode := privilege.Detect()
 	fmt.Printf("%s 提权: %s\n", yellow("▸"), mode)
-	if mode == privilege.ModeNone {
-		return fmt.Errorf("既非 root 也无 sudo/su 可用，无法安装；请让管理员处理")
+	if mode == privilege.ModeNone && !rootless {
+		fmt.Println(yellow("▸") + " 无特权路径可用，自动尝试 rootless 模式 ...")
+		rootless = true
 	}
-	runner, err := privilege.NewRunner(mode, sudoPass, nonInteractive)
-	if err != nil {
-		return err
+	runner := (*privilege.Runner)(nil)
+	if !rootless {
+		r, err := privilege.NewRunner(mode, sudoPass, nonInteractive)
+		if err != nil {
+			// sudo 密码验证失败：若 rootless 前提满足，自动降级 rootless 而不是直接失败
+			if _, st := doctor.RootlessPrereqs(); st == doctor.OK {
+				fmt.Println(yellow("▸") + " sudo 不可用，但 rootless 前提满足——自动切换 rootless 模式")
+				rootless = true
+			} else {
+				return err
+			}
+		} else {
+			runner = r
+		}
 	}
 
 	// ---------- 安装 ----------
@@ -191,14 +205,24 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println(yellow("▸ 安装"))
-	if err := installer.Run(runner, installer.Options{
-		Mirror:         mirror,
-		LiveRestore:    liveRestore,
-		NoSystemd:      noSystemd,
-		NonInteractive: nonInteractive,
-		Yes:            yes,
-	}, ui); err != nil {
-		return err
+	var installErr error
+	if rootless {
+		installErr = installer.RunRootless(installer.Options{
+			Mirror:         mirror,
+			NonInteractive: nonInteractive,
+			Yes:            yes,
+		}, ui)
+	} else {
+		installErr = installer.Run(runner, installer.Options{
+			Mirror:         mirror,
+			LiveRestore:    liveRestore,
+			NoSystemd:      noSystemd,
+			NonInteractive: nonInteractive,
+			Yes:            yes,
+		}, ui)
+	}
+	if installErr != nil {
+		return installErr
 	}
 	if pb != nil {
 		pb.Finish()
