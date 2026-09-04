@@ -71,6 +71,27 @@ bash dok-installer-*.run doctor
 
 安装流程自动完成：**环境预检 → 提权（root / sudo / su 自动降级）→ 安装引擎与 Compose → systemd 注册（或 nohup 兜底）→ 启动 → 自验**。
 
+## 🚀 进阶用法
+
+**dok-deploy：一条命令直推远程服务器安装**（复用 `~/.ssh/config` 别名/跳板/密钥）：
+
+```bash
+# 自动: 探测架构 → 上传 → 远程预检 → sudo 安装 → 验证
+dok-deploy 9y2                    # 按 ssh config 别名
+dok-deploy root@1.2.3.4 -- --yes --live-restore   # 透传安装器参数
+```
+
+**rootless：无 root/sudo 权限也能装**（装到 `~/.local`，用户态 daemon）：
+
+```bash
+# 无特权用户直接运行，自动降级到 rootless；或显式指定
+bash dok-installer-*.run --rootless --non-interactive --yes
+```
+
+rootless 需要管理员**一次性**配置：`uidmap` 包 + `usermod --add-subuids 100000-165535 --add-subgids 100000-165535 <用户>`（Ubuntu 24.04+ 还需 `sysctl kernel.apparmor_restrict_unprivileged_userns=0`）。安装器会在预检时列出缺失项和对应命令。限制：端口<1024 需 setcap、cgroup 限额不生效、网络走 slirp4netns。
+
+**自动安全更新提醒**：仓库每周自动检查 Docker 官方最新版是否落后，落后会开 issue（静态包无自动更新的缓解手段）。
+
 ## ❓ 常见问题
 
 **Q：目标机已装过 Docker，能直接覆盖吗？**

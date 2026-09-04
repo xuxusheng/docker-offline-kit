@@ -155,15 +155,11 @@ func Run() *Report {
 		r.add(Check{Name: "旧版 Docker", Status: OK, Detail: "无，全新安装"})
 	}
 
-	// 9.5) rootless 可行性（仅当无特权路径时评估）
-	if os.Geteuid() != 0 {
-		if _, err := exec.LookPath("sudo"); err != nil {
-			if _, serr := exec.LookPath("su"); serr != nil {
-				detail, st := RootlessPrereqs()
-				r.add(Check{Name: "rootless", Status: st, Detail: detail,
-					Fix: "管理员一次性: 安装 uidmap + usermod --add-subuids 100000-165535 --add-subgids 100000-165535 <用户> + sysctl kernel.apparmor_restrict_unprivileged_userns=0"})
-			}
-		}
+	// 9.5) rootless 可行性（当常规提权无免密路径时不定期评估：无法用密码提权的无特权用户）
+	if os.Geteuid() != 0 && exec.Command("sudo", "-n", "true").Run() != nil {
+		detail, st := RootlessPrereqs()
+		r.add(Check{Name: "rootless", Status: st, Detail: detail,
+			Fix: "管理员一次性: 安装 uidmap + usermod --add-subuids 100000-165535 --add-subgids 100000-165535 <用户> + sysctl kernel.apparmor_restrict_unprivileged_userns=0"})
 	}
 
 	// 10) 磁盘
