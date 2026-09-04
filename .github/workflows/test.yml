@@ -222,3 +222,37 @@ jobs:
             ```
 
             验证完整性：universal 包内嵌 sha256 自校验；亦可核对同名 `.sha256` 文件。
+
+  # ---------- rootless 回归（最关键：CI 目前唯一没守住的安装路径） ----------
+  rootless-ci:
+    name: rootless 用户态安装
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: pack 出安装器
+        run: go run ./cmd/pack --archs x86_64
+
+      - name: 准备无特权用户（uidmap/subuid/AppArmor/会话）
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq uidmap >/dev/null 2>&1
+          sudo useradd -m -s /bin/bash -u 1850 rluser
+          echo "rluser:100000:65536" | sudo tee /etc/subuid >/dev/null
+          echo "rluser:100000:65536" | sudo tee /etc/subgid >/dev/null
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo mkdir -p /run/user/1850 && sudo chown rluser:rluser /run/user/1850 && sudo chmod 700 /run/user/1850
+
+      - name: rootless 安装（无特权用户 + 自动降级路径）
+        run: |
+          DIST_PKG=$(ls dist/installer-x86_64)
+          sudo cp "$DIST_PKG" /var/tmp/rlinstaller
+          sudo chmod 755 /var/tmp/rlinstaller
+          # 用 GNU screen/tmux 或 machinectl 给 rluser 建 systemd 用户会话
+          which machinectl || sudo apt-get install -y -qq systemd-container >/dev/null 2>&1
+          sudo machinectl shell rluser@ /bin/bash -lc '/var/tmp/rlinstaller --rootless --non-interactive --yes --skip-doctor 2>&1 | tail -8; echo EXIT=$?'
+      - name: 验证 rootless docker
+        run: |
+          sudo machinectl shell rluser@ /bin/bash -lc 'export PATH=/home/rluser/.local/bin:$PATH; docker --context rootless version --format "Docker {{.Server.Version}} (rootless)"'
