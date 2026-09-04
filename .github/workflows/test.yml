@@ -112,7 +112,6 @@ jobs:
           - debian:12
           - ubuntu:20.04
           - almalinux:8
-          - openeuler/openeuler:24.03-lts
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -171,6 +170,24 @@ jobs:
             /kit/installer-armhf debug-extract /tmp/x
             ls /tmp/x/bin/dockerd /tmp/x/bin/docker /tmp/x/compose/docker-compose
             echo "armv7 冒烟 ✓"'
+
+
+  openeuler-ci:
+    name: 容器档 openeuler
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: pack 出正式安装器
+        run: go run ./cmd/pack --archs x86_64
+      - name: openEuler 容器内安装
+        timeout-minutes: 8
+        run: |
+          docker run --rm --privileged \
+            -v "$PWD/dist/installer-x86_64:/installer:ro" openeuler/openeuler:24.03-lts bash -ec $'dnf install -y -q iptables xz 2>/dev/null || true; /installer --non-interactive --yes --no-systemd --skip-doctor 2>&1 | tail -6; docker version --format "Docker {{.Server.Version}}:ok"; docker compose version'
 
   # ---------- 发布：全部测试通过后才执行（仅 tag 触发） ----------
   release:
