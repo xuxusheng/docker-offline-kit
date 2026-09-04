@@ -69,9 +69,9 @@ func resolveInstaller() string {
 		return installerPath
 	}
 	// 优先 release/ 下最新修改的 universal
-	candidates, _ := filepath.Glob("release/dok-installer-*-universal.run")
+	candidates, _ := filepath.Glob("release/dok.run")
 	if len(candidates) == 0 {
-		candidates, _ = filepath.Glob("release/dok-installer-latest-universal.run")
+		candidates, _ = filepath.Glob("release/dok-latest.run")
 	}
 	if len(candidates) == 0 {
 		die("未找到本地安装器。请先 go run ./cmd/pack，或用 --installer 指定文件\n  （也可从 https://github.com/xuxusheng/docker-offline-kit/releases 下载）")

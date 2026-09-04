@@ -209,7 +209,7 @@ jobs:
           mkdir -p release-out
           cp dist/installer-x86_64 dist/installer-aarch64 dist/installer-armhf release-out/
           cp release/*.run release/*.sha256 release-out/
-          cp release/dok-installer-*-universal.run release-out/dok-installer-latest-universal.run
+          cp release/dok.run release-out/dok-latest.run
           ls -la release-out/
 
       - name: 发布到 GitHub Release
@@ -227,14 +227,14 @@ jobs:
 
             | 文件 | 适用 |
             |---|---|
-            | `dok-installer-*-universal.run` | 通用（x86_64/aarch64/armhf 自动选择），推荐 |
+            | `dok.run` | 通用（x86_64/aarch64/armhf 自动选择），推荐 |
             | `installer-x86_64` / `installer-aarch64` / `installer-armhf` | 单架构瘦身版 |
 
             ## 用法
 
             ```bash
             # 下载（或离线拷贝）到目标机后：
-            sudo bash dok-installer-*.run
+            sudo bash dok.run
             # 自动：环境预检 → 提权（root/sudo/su）→ 安装 → 启动 → 自验
             ```
 

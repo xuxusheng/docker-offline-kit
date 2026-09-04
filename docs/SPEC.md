@@ -47,7 +47,7 @@ pack (Go)                              installer (Go, 静态 ELF)
  2. 下载 compose 插件(各架构)            ① doctor 预检，红灯即停
  3. embed 注入 payload                  ② 提权判定 root→sudo→su
  4. CGO_ENABLED=0 交叉编译               ③ 解包 → 装二进制+compose
- 5. bash 引导壳拼接 → universal .run    ④ systemd unit / nohup 兜底
+ 5. bash 引导壳拼接 → universal `dok.run`    ④ systemd unit / nohup 兜底
  6. 产出 sha256                         ⑤ 幂等（保数据）⑥ 自验
 ```
 

@@ -8,11 +8,11 @@
 
 ```bash
 # 1. 下载（国内服务器用加速前缀，见下文「下载」）
-curl -fL -o dok-installer.run \
-  "https://ghfast.top/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/dok-installer-29.7.2-universal.run"
+curl -fL -o dok.run \
+  "https://ghfast.top/https://github.com/xuxusheng/docker-offline-kit/releases/latest/download/dok.run"
 
 # 2. 安装（自动预检 → 提权 → 安装 → 启动 → 自验）
-sudo bash dok-installer.run
+sudo bash dok.run
 
 # 3. 部署你的项目
 docker compose up -d
@@ -26,7 +26,7 @@ docker compose up -d
 
 | 文件 | 适用 |
 |---|---|
-| `dok-installer-*-universal.run` | **通用**（x86_64/aarch64/armhf 自动选择），推荐 |
+| `dok.run` | **通用**（x86_64/aarch64/armhf 自动选择），推荐 |
 | `installer-x86_64` / `installer-aarch64` / `installer-armhf` | 单架构瘦身版（约为通用包 1/3 体积） |
 
 按目标机网络环境选择下载方式：
@@ -34,19 +34,19 @@ docker compose up -d
 **① 能直连 GitHub**（境外服务器）：
 
 ```bash
-wget https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/dok-installer-29.7.2-universal.run
+wget https://github.com/xuxusheng/docker-offline-kit/releases/latest/download/dok.run
 ```
 
 **② 国内服务器**（直连实测仅 ~20KB/s）：在原始 URL 前加加速代理前缀，实测可提速到 1.8~2.4MB/s：
 
 ```bash
 # 首选
-curl -fL -o dok-installer.run \
-  "https://ghfast.top/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/dok-installer-29.7.2-universal.run"
+curl -fL -o dok.run \
+  "https://ghfast.top/https://github.com/xuxusheng/docker-offline-kit/releases/latest/download/dok.run"
 
 # 备选
-curl -fL -o dok-installer.run \
-  "https://gh-proxy.com/https://github.com/xuxusheng/docker-offline-kit/releases/download/v1.1/dok-installer-29.7.2-universal.run"
+curl -fL -o dok.run \
+  "https://gh-proxy.com/https://github.com/xuxusheng/docker-offline-kit/releases/latest/download/dok.run"
 ```
 
 **③ 完全离线的目标机**：在任何有网机器上按 ①② 下载，再 `scp` 或 U 盘拷贝过去。
@@ -56,17 +56,17 @@ curl -fL -o dok-installer.run \
 ## 🛠 用法与常用参数
 
 ```bash
-sudo bash dok-installer-*.run          # 标准安装
-sudo bash dok-installer-*.run --yes    # 所有确认取默认（全自动）
-sudo bash dok-installer-*.run --no-systemd   # 无 systemd 环境（nohup 兜底）
-sudo bash dok-installer-*.run --mirror <加速地址>   # 写入 registry-mirrors
-dok-installer --help                   # 全部参数
+sudo bash dok.run          # 标准安装
+sudo bash dok.run --yes    # 所有确认取默认（全自动）
+sudo bash dok.run --no-systemd        # 无 systemd 环境（nohup 兜底）
+sudo bash dok.run --mirror <加速地址>  # 写入 registry-mirrors
+dok.run --help             # 全部参数
 ```
 
 只想体检不安装？`doctor` 子命令单独跑预检（架构/内核/overlay2/cgroup/iptables/systemd/旧版来源/磁盘，共 11 项）：
 
 ```bash
-bash dok-installer-*.run doctor
+bash dok.run doctor
 ```
 
 安装流程自动完成：**环境预检 → 提权（root / sudo / su 自动降级）→ 安装引擎与 Compose → systemd 注册（或 nohup 兜底）→ 启动 → 自验**。
@@ -85,7 +85,7 @@ dok-deploy root@1.2.3.4 -- --yes --live-restore   # 透传安装器参数
 
 ```bash
 # 无特权用户直接运行，自动降级到 rootless；或显式指定
-bash dok-installer-*.run --rootless --non-interactive --yes
+bash dok.run --rootless --non-interactive --yes
 ```
 
 rootless 需要管理员**一次性**配置：`uidmap` 包 + `usermod --add-subuids 100000-165535 --add-subgids 100000-165535 <用户>`（Ubuntu 24.04+ 还需 `sysctl kernel.apparmor_restrict_unprivileged_userns=0`）。安装器会在预检时列出缺失项和对应命令。限制：端口<1024 需 setcap、cgroup 限额不生效、网络走 slirp4netns。
